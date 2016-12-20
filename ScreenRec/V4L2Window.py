@@ -89,7 +89,7 @@ class V4L2Window(PlaybackWindow):
             height = self.height
 
         if self.pipeline:
-            self.pipeline.set_state(Gst.State.READY)
+            self.pipeline.set_state(Gst.State.NULL)
         self.scaler.set_property('width', width)
         self.scaler.set_property('height', height)
         self.resize(width, height)
