@@ -240,6 +240,7 @@ class ControlWindow(Gtk.Window):
 
             # TODO: implement settings page for encoder
             self.processes['recorder'] = mp.Process(target=record_main, kwargs={
+                'encoder': 'software',
                 'filename': self.output_path,
                 'width': 1920,
                 'height': 1080,

@@ -1,4 +1,4 @@
-import os, sys
+import os, sys, subprocess
 
 # gi is GObject instrospection
 import gi
@@ -12,14 +12,25 @@ from gi.repository import Gst, GObject
 
 class ScreenRecorder():
 
-    def __init__(self, width=1920, height=1080, scale_width=None, scale_height=None):
+    ENCODERS = [
+        'vaapi', # Intel CPU driver (only when running Xorg on Intel or Glamour drivers
+        'nvenc', # NVidia encoder, needs GTX680 or higher (GK104/Keppler or higher) and ffmpeg with support compiled in
+        'software' # Uses libx264 'veryfast' preset, needs much CPU power
+        # TODO: What about AMD graphics card acceleration?
+    ]
+
+    def __init__(self, width=1920, height=1080, scale_width=None, scale_height=None, encoder='software'):
+        if not encoder in ScreenRecorder.ENCODERS:
+            raise NotImplementedError("Encoder '{}' not implemented".format(encoder))
+
         self.scale_width = scale_width
         self.scale_height = scale_height
         self.width = width
         self.height = height
-        self.build_gst_pipeline()
+        self.encoder = encoder
+        self.build_gst_pipeline(encoder)
 
-    def build_gst_pipeline(self):
+    def build_gst_pipeline(self, encoding_method):
         # display src
         src = Gst.ElementFactory.make('ximagesrc', 'source')
         src.set_property('display-name', ':0')
@@ -29,40 +40,116 @@ class ScreenRecorder():
         src.set_property('endx', self.width - 1)
         src.set_property('endy', self.height - 1)
 
-        # get 720p mjpeg stream
-        # caps = Gst.Caps.from_string('image/jpeg,width=1280,height=720,framerate=20/1')
-        # filter = Gst.ElementFactory.make('capsfilter')
-        # filter.set_property('caps', caps)
-
-        # parse, decode and scale with hardware acceleration
-        self.scaler = Gst.ElementFactory.make('vaapipostproc')
-        if self.scale_width and self.scale_height:
-            self.scaler.set_property('width', self.scale_width)
-            self.scaler.set_property('height', self.scale_height)
-            self.scaler.set_property('scale-method', 2)
-
-        encoder = Gst.ElementFactory.make('vaapih264enc')
-        parser = Gst.ElementFactory.make('h264parse')
-        muxer = Gst.ElementFactory.make('matroskamux')
-
-        # output is vaapi because the image is already in VRAM
-        self.sink = Gst.ElementFactory.make('filesink')
-
         # assemble pipeline
         self.pipeline = Gst.Pipeline.new('playback')
+
         self.pipeline.add(src)
-        self.pipeline.add(self.scaler)
-        self.pipeline.add(encoder)
+
+        print('Using {} encoder'.format(encoding_method))
+
+        # nvenc is special as we run ffmpeg as a sub process
+        if encoding_method == 'nvenc':
+            return self.build_nvenc_pipeline(src)
+
+        # output part of pipeline
+        parser = Gst.ElementFactory.make('h264parse')
+        muxer = Gst.ElementFactory.make('matroskamux')
+        self.sink = Gst.ElementFactory.make('filesink')
+
+        # build encoding pipelines
+        encoder = None
+        if encoding_method == 'vaapi':
+            # scale, convert and encode with hardware acceleration
+            scaler = Gst.ElementFactory.make('vaapipostproc')
+            if self.scale_width and self.scale_height:
+                scaler.set_property('width', self.scale_width)
+                scaler.set_property('height', self.scale_height)
+                scaler.set_property('scale-method', 2)
+            encoder = Gst.ElementFactory.make('vaapih264enc')
+
+            self.pipeline.add(scaler)
+            self.pipeline.add(encoder)
+
+            src.link(scaler)
+            scaler.link(encoder)
+        elif encoding_method == 'software':
+            # scale, convert and encode with software encoders
+            convert = Gst.ElementFactory.make('autovideoconvert')
+            self.pipeline.add(convert)
+            src.link(convert)
+
+            encoder = Gst.ElementFactory.make('x264enc')
+            encoder.set_property('speed-preset', 'veryfast')
+
+            if self.scale_width and self.scale_height:
+                scaler = Gst.ElementFactory.make('videoscale')
+                cap_string = 'video/x-raw,width={},height={}'.format(
+                    self.scale_width, self.scale_height
+                )
+                caps = Gst.Caps.from_string(cap_string)
+                filter = Gst.ElementFactory.make('capsfilter')
+                filter.set_property('caps', caps)
+
+                self.pipeline.add(scaler)
+                self.pipeline.add(filter)
+                self.pipeline.add(encoder)
+                convert.link(scaler)
+                scaler.link(filter)
+                filter.link(encoder)
+            else:
+                self.pipeline.add(encoder)
+                convert.link(encoder)
+
+        # add remaining parts
         self.pipeline.add(parser)
         self.pipeline.add(muxer)
         self.pipeline.add(self.sink)
 
-        src.link(self.scaler)
-        self.scaler.link(encoder)
+        # link remaining parts
         encoder.link(parser)
         parser.link(muxer)
         muxer.link(self.sink)
 
+        self.create_bus()
+
+    def build_nvenc_pipeline(self, src):
+        # scale and convert with software encoders, send rtp stream to ffmpeg for encoding
+        convert = Gst.ElementFactory.make('autovideoconvert')
+        self.pipeline.add(convert)
+        src.link(convert)
+
+        self.sink = Gst.ElementFactory.make('fdsink')
+
+        encoder = Gst.ElementFactory.make('y4menc')
+
+        if self.scale_width and self.scale_height:
+            scaler = Gst.ElementFactory.make('videoscale')
+            cap_string = 'video/x-raw,width={},height={}'.format(
+                self.scale_width, self.scale_height
+            )
+            caps = Gst.Caps.from_string(cap_string)
+            filter = Gst.ElementFactory.make('capsfilter')
+            filter.set_property('caps', caps)
+
+            self.pipeline.add(scaler)
+            self.pipeline.add(filter)
+            self.pipeline.add(encoder)
+            convert.link(scaler)
+            scaler.link(filter)
+            filter.link(encoder)
+        else:
+            self.pipeline.add(encoder)
+            convert.link(encoder)
+
+        # add sink
+        self.pipeline.add(self.sink)
+
+        # link encoder to sink
+        encoder.link(self.sink)
+
+        self.create_bus()
+
+    def create_bus(self):
         # create a bus
         self.bus = self.pipeline.get_bus()
 
@@ -85,21 +172,43 @@ class ScreenRecorder():
 
     def start(self, path='~/output.mkv'):
         path = os.path.expanduser(path)
-        self.sink.set_property('location', path)
+        if self.encoder == 'nvenc':
+            # nvenc uses external ffmpeg process
+            (self.rfd, self.wfd) = os.pipe()
+            cmd = [
+                'ffmpeg',
+                '-y',
+                '-f', 'yuv4mpegpipe',
+                '-i', 'pipe:0',
+                '-vf', 'scale',
+                '-pix_fmt', 'yuv420p',
+                '-codec:v', 'h264_nvenc',
+                '-f', 'matroska',
+                path
+            ]
+            self.subproc = subprocess.Popen(cmd, stdin=self.rfd)
+            self.sink.set_property('fd', self.wfd)
+        else:
+            # vaapi and software encoders are gstreamer internal
+            self.sink.set_property('location', path)
         self.pipeline.set_state(Gst.State.PLAYING)
 
     def stop(self):
         self.pipeline.set_state(Gst.State.READY)
         self.pipeline.set_state(Gst.State.NULL)
+        if self.rfd:
+            os.close(self.rfd)
+        if self.wfd:
+            os.close(self.wfd)
 
-def main(filename='~/capture.mkv', width=1920, height=1080, scale_width=None, scale_height=None):
+def main(filename='~/capture.mkv', width=1920, height=1080, scale_width=None, scale_height=None, encoder='software'):
     # Initialize Gstreamer
     GObject.threads_init()
     mainloop = GObject.MainLoop()
     Gst.init(None)
 
     # Start screen recorder
-    recorder = ScreenRecorder(width=width, height=height, scale_height=scale_height, scale_width=scale_width)
+    recorder = ScreenRecorder(width=width, height=height, scale_height=scale_height, scale_width=scale_width, encoder=encoder)
     recorder.start(path=filename)
 
     # run the main loop
