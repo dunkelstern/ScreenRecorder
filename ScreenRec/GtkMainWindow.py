@@ -54,10 +54,27 @@ class ControlWindow(Gtk.Window):
         self.stream_button.connect("clicked", self.on_stream)
         self.header.pack_end(self.stream_button)
 
-        # video source buttons
-        self.box = Gtk.VBox(spacing=10)
-        self.add(self.box)
+        # config/execute stack
 
+        main_layout = Gtk.Box(spacing=6, orientation=Gtk.Orientation.VERTICAL)
+        main_layout.set_homogeneous(False)
+        self.add(main_layout)
+
+        stack_switcher_container = Gtk.HeaderBar()
+        stack_switcher = Gtk.StackSwitcher()
+        stack_switcher_container.set_custom_title(stack_switcher)
+        main_layout.pack_start(stack_switcher_container, True, True, 0)
+        #stack_switcher.set_property('halign', Gtk.Align.CENTER)
+
+        stack = Gtk.Stack()
+        stack_switcher.set_stack(stack)
+        main_layout.pack_start(stack, True, True, 0)
+
+        # video source buttons
+        self.box = Gtk.Box(spacing=10, orientation=Gtk.Orientation.VERTICAL)
+        stack.add_titled(self.box, 'exec', 'Run')
+
+        # TODO: make dynamic
         self.webcam_button = Gtk.Button(label="Webcam")
         self.webcam_button.connect('clicked', self.on_webcam)
         self.box.pack_start(self.webcam_button, True, True, 0)
@@ -70,6 +87,10 @@ class ControlWindow(Gtk.Window):
         self.rtmp_button.connect('clicked', self.on_rtmp)
         self.box.pack_start(self.rtmp_button, True, True, 0)
 
+        # config section
+        self.build_config_section(stack)
+        self.build_recording_config_section(stack)
+
         # no border
         self.set_border_width(0)
 
@@ -77,11 +98,77 @@ class ControlWindow(Gtk.Window):
         self.show_all()
 
         # resize the window and disable resizing by user if needed
-        # self.set_default_size(320, 240)
         self.set_resizable(False)
 
         # on quit run callback to stop pipeline
         self.connect("delete-event", self.quit)
+
+    def build_config_section(self, stack):
+        columns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        columns.set_homogeneous(False)
+        stack.add_titled(columns, 'config', 'Settings')
+
+        # left column, listview with defined buttons
+        left_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        left_column.set_homogeneous(False)
+        columns.pack_start(left_column, True, True, 0)
+
+        # listview
+        self.list_view = Gtk.TreeView()
+        self.list_view.set_size_request(150,300)
+        left_column.pack_start(self.list_view, True, True, 0)
+
+        # add / delete buttons
+        list_view_buttons = Gtk.ActionBar()
+        left_column.pack_start(list_view_buttons, True, True, 0)
+
+        self.remove_button = Gtk.Button()
+        icon = Gio.ThemedIcon(name="list-remove")
+        image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
+        self.remove_button.set_image(image)
+        list_view_buttons.pack_start(self.remove_button)
+
+        self.add_button = Gtk.Button()
+        icon = Gio.ThemedIcon(name="list-add")
+        image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
+        self.add_button.set_image(image)
+        list_view_buttons.pack_start(self.add_button)
+
+        # config column
+        self.type_store = Gtk.ListStore(str)
+
+        right_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        right_column.set_homogeneous(False)
+        columns.pack_start(right_column, True, True, 0)
+        self.config_type_combobox = Gtk.ComboBox.new_with_model(self.type_store)
+        renderer_text = Gtk.CellRendererText()
+        self.config_type_combobox.pack_start(renderer_text, True)
+        self.config_type_combobox.add_attribute(renderer_text, "text", 0)
+        right_column.pack_start(self.config_type_combobox, True, True, 0)
+
+        self.config_stack = Gtk.Stack()
+        self.type_store.append(['V4L2 Device'])
+        self.build_v4l2_config(self.config_stack)
+        self.type_store.append(['MJPEG Pipe'])
+        self.build_mjpeg_config(self.config_stack)
+        self.type_store.append(['Stream URL'])
+        self.build_stream_config(self.config_stack)
+
+        right_column.pack_start(self.config_stack, True, True, 0)
+
+    def build_recording_config_section(self, stack):
+        container = Gtk.Grid()
+        stack.add_titled(container, 'record', 'Rec Settings')
+
+
+    def build_v4l2_config(self, stack):
+        pass
+
+    def build_mjpeg_config(self, stack):
+        pass
+
+    def build_stream_config(self, stack):
+        pass
 
     def present_window(self, window):
         self.windows[window].set_visible(True)
