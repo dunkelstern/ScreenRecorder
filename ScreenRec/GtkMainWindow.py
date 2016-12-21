@@ -1,3 +1,6 @@
+import json
+import os
+from collections import OrderedDict
 from datetime import datetime
 
 # gi is GObject instrospection
@@ -16,12 +19,14 @@ from .V4L2Window import main as v4l2_main
 from .MJPEGPipeWindow import main as mjpeg_main
 from .RTMPWindow import main as rtmp_main
 from .ScreenRecorder import main as record_main
+from .ScreenRecorder import ScreenRecorder
 
 
 # Control window
 class ControlWindow(Gtk.Window):
     def __init__(self, data=None, title="Video recorder"):
         mp.set_start_method('spawn')
+        self.load_config()
 
         self.recording = False
         self.streaming = False
@@ -103,6 +108,21 @@ class ControlWindow(Gtk.Window):
         # on quit run callback to stop pipeline
         self.connect("delete-event", self.quit)
 
+    def load_config(self):
+        filename = os.path.expanduser('~/.config/ScreenRecorder/default.json')
+        if os.path.exists(filename):
+            config = json.load(open(filename, 'r'))
+            for key, value in config.items():
+                setattr(self, key, value)
+
+    def save_config(self):
+        filename = os.path.expanduser('~/.config/ScreenRecorder/default.json')
+        if not os.path.exists(os.path.dirname(filename)):
+            os.makedirs(os.path.dirname(filename))
+        config = {}
+        config['recording_settings'] = getattr(self, 'recording_settings', {})
+        json.dump(config, open(filename, 'w'), indent=4)
+
     def build_config_section(self, stack):
         columns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         columns.set_homogeneous(False)
@@ -160,6 +180,114 @@ class ControlWindow(Gtk.Window):
         container = Gtk.Grid()
         stack.add_titled(container, 'record', 'Rec Settings')
 
+        screen_width = Gdk.Screen.get_default().get_width()
+        screen_height = Gdk.Screen.get_default().get_height()
+        val = getattr(self, 'recording_settings', {})
+        default_encoder = val.get('encoder', 'software')
+        default_file = val.get('filename', '~/Capture/cap-%Y-%m-%d_%H:%M:%S.mkv')
+        default_width = val.get('width', screen_width)
+        default_height = val.get('height', screen_height)
+        default_scale_width = val.get('scale_width', 0)
+        default_scale_height = val.get('scale_height', 0)
+
+        self.make_settings_page(container, 'recording_settings',
+            OrderedDict([
+                ('encoder', (ScreenRecorder.ENCODERS, default_encoder)),
+                ('filename', ('filepicker', default_file)),
+                ('width', ('int', (default_width, 0, screen_width))),
+                ('height', ('int', (default_height, 0, screen_height))),
+                ('scale_width', ('int', (default_scale_width, 0, screen_width))),
+                ('scale_height', ('int', (default_scale_height, 0, screen_height)))
+            ])
+        )
+
+    def make_settings_page(self, container, name, layout):
+        container.set_row_spacing(10)
+        container.set_column_spacing(10)
+        container.set_column_homogeneous(True)
+        container.set_border_width(10)
+
+        val = getattr(self, name, {})
+
+        last_item = None
+        for setting, (setting_type, default) in layout.items():
+            label = Gtk.Label(setting.replace("_", " ").title())
+            label.set_halign(Gtk.Align.START)
+            container.attach_next_to(label, last_item, Gtk.PositionType.BOTTOM, 1, 1)
+
+            if isinstance(setting_type, list):
+                # combobox
+                list_store = Gtk.ListStore(str)
+                combobox = Gtk.ComboBox.new_with_model(list_store)
+                renderer_text = Gtk.CellRendererText()
+                combobox.pack_start(renderer_text, True)
+                combobox.add_attribute(renderer_text, "text", 0)
+
+                for item in setting_type:
+                    list_store.append([item])
+
+                combobox.set_active(setting_type.index(default))
+                combobox.set_name(setting)
+                combobox.connect('changed', lambda combo: self.on_combobox_changed(combo, name))
+                container.attach_next_to(combobox, label, Gtk.PositionType.RIGHT, 1, 1)
+                val[setting] = default
+            elif setting_type == 'int':
+                # spinner
+                adjustment = Gtk.Adjustment(default[0], default[1], default[2], 1, 100, 0)
+                spinner = Gtk.SpinButton.new(adjustment, 100, 0)
+                spinner.set_value(default[0])
+                spinner.set_name(setting)
+                spinner.connect('value-changed', lambda spinner: self.on_spinner_changed(spinner, name))
+                container.attach_next_to(spinner, label, Gtk.PositionType.RIGHT, 1, 1)
+                val[setting] = default[0]
+            elif setting_type == 'float':
+                # spinner with decimal
+                adjustment = Gtk.Adjustment(default[0], default[1], default[2], 1, 100, 0)
+                spinner = Gtk.SpinButton.new(adjustment, 100, 2)
+                spinner.set_value(default[0])
+                spinner.set_name(setting)
+                spinner.connect('value-changed', lambda spinner: self.on_spinner_changed(spinner, name))
+                container.attach_next_to(spinner, label, Gtk.PositionType.RIGHT, 1, 1)
+                val[setting] = default[0]
+            elif setting_type == 'string':
+                # textbox
+                textbox = Gtk.Entry()
+                textbox.set_text(default)
+                textbox.set_name(setting)
+                textbox.connect('changed', lambda textbox: self.on_textbox_changed(textbox, name))
+                container.attach_next_to(textbox, label, Gtk.PositionType.RIGHT, 1, 1)
+                val[setting] = default
+            elif setting_type == 'filepicker':
+                # file picker box
+                picker = Gtk.Entry.new()
+                picker.set_text(default)
+                picker.set_name(setting)
+                picker.connect('changed', lambda picker: self.on_textbox_changed(picker, name))
+                container.attach_next_to(picker, label, Gtk.PositionType.RIGHT, 1, 1)
+                val[setting] = default
+        setattr(self, name, val)
+
+    def on_spinner_changed(self, spinner, name):
+        val = getattr(self, name, {})
+        val[spinner.get_name()] = spinner.get_value()
+        setattr(self, name, val)
+        self.save_config()
+
+    def on_textbox_changed(self, textbox, name):
+        val = getattr(self, name, {})
+        val[textbox.get_name()] = textbox.get_text()
+        setattr(self, name, val)
+        self.save_config()
+
+    def on_combobox_changed(self, combo, name):
+        id = combo.get_active()
+        if id != None:
+            model = combo.get_model()
+            entry = list(model[id])
+            val = getattr(self, name, {})
+            val[combo.get_name()] = entry[0]
+            setattr(self, name, val)
+            self.save_config()
 
     def build_v4l2_config(self, stack):
         pass
@@ -233,19 +361,20 @@ class ControlWindow(Gtk.Window):
             self.record_button.set_image(image)
         else:
             # start recording
-            self.output_path = datetime.now().strftime('~/Capture/cap-%Y-%m-%d_%H:%M:%S.mkv')
 
             if 'recorder' in self.processes and self.processes['recorder'].is_alive():
                 self.processes['recorder'].terminate()
 
-            # TODO: implement settings page for encoder
+            val = getattr(self, 'recording_settings')
+
+            output_path = datetime.now().strftime(val['filename'])
             self.processes['recorder'] = mp.Process(target=record_main, kwargs={
-                'encoder': 'software',
-                'filename': self.output_path,
-                'width': 1920,
-                'height': 1080,
-                'scale_width': None,
-                'scale_height': None
+                'encoder': val['encoder'],
+                'filename': output_path,
+                'width': val['width'],
+                'height': val['height'],
+                'scale_width': None if int(val['scale_width']) == 0 else int(val['scale_width']),
+                'scale_height': None if int(val['scale_height']) == 0 else int(val['scale_height'])
             })
             self.processes['recorder'].start()
 
