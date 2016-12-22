@@ -68,7 +68,6 @@ class OSXCamWindow(PlaybackWindow):
         self.pipeline.add(self.scaler)
         scaler.link(self.scaler)
 
-        # output is vaapi because the image is already in VRAM
         self.sink = Gst.ElementFactory.make('gtksink')
         self.sink.set_property('sync', 'false')
 

@@ -16,10 +16,15 @@ gi.require_version('GstVideo', '1.0')
 from gi.repository import GstVideo
 
 import platform
+available_hwaccels = []
 if platform.system() == 'Linux':
     from gi.repository import GdkX11
+    available_hwaccels = [
+        'opengl',
+        'vaapi',
+        'xvideo'
+    ]
 elif platform.system() == 'Darwin':
-    #from gi.repository import GdkQuartz
     pass
 elif platform.system() == 'Windows':
     pass
@@ -27,7 +32,9 @@ elif platform.system() == 'Windows':
 
 # Base class for a playback window
 class PlaybackWindow(Gtk.Window):
-    def __init__(self, data=None, title="Video Out"):
+    def __init__(self, data=None, title="Video Out", hwaccel='opengl'):
+        self.hwaccel = hwaccel
+
         # initialize window
         Gtk.Window.__init__(self, title=title)
 
@@ -130,6 +137,51 @@ class PlaybackWindow(Gtk.Window):
         self.bus.connect("sync-message::element", self.on_sync_message)
 
         self.switch.set_active(True)
+
+    def make_sink(self, sync=False):
+        sink = Gst.Bin.new('sink')
+        if self.hwaccel == 'vaapi':
+            # output is vaapi because the image is already in VRAM
+            uploader = Gst.ElementFactory.make('vaapipostproc')
+            sink.add(uploader)
+
+            out = Gst.ElementFactory.make('vaapisink')
+            out.set_property('sync', sync)
+            sink.add(out)
+
+            uploader.link(out)
+
+            ghost_sink = Gst.GhostPad.new('sink', uploader.get_static_pad('sink'))
+            sink.add_pad(ghost_sink)
+        elif self.hwaccel == 'opengl':
+            # gl accelerated sink
+            videoconvert = Gst.ElementFactory.make('autovideoconvert')
+            sink.add(videoconvert)
+            uploader = Gst.ElementFactory.make('glupload')
+            sink.add(uploader)
+            self.sink = Gst.ElementFactory.make('gtkglsink')
+            self.sink.set_property('sync', sync)
+            sink.add(self.sink)
+
+            videoconvert.link(uploader)
+            uploader.link(self.sink)
+
+            ghost_sink = Gst.GhostPad.new('sink', videoconvert.get_static_pad('sink'))
+            sink.add_pad(ghost_sink)
+        elif self.hwaccel == 'xvideo':
+            # xvideo accelerated sink
+            videoconvert = Gst.ElementFactory.make('autovideoconvert')
+            sink.add(videoconvert)
+            self.sink = Gst.ElementFactory.make('xvimagesink')
+            self.sink.set_property('colorkey', 0x00ff00)
+            self.sink.set_property('sync', sync)
+            sink.add(self.sink)
+
+            videoconvert.link(self.sink)
+
+            ghost_sink = Gst.GhostPad.new('sink', videoconvert.get_static_pad('sink'))
+            sink.add_pad(ghost_sink)
+        return sink
 
     def on_message(self, bus, message):
         def set_switch(active):

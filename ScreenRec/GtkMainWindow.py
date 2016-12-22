@@ -347,7 +347,10 @@ class ControlWindow(Gtk.Window):
             self.queues['microscope'] = mp.Queue()
             # TODO: implement settings page for mjpeg stream
             self.processes['microscope'] = mp.Process(target=mjpeg_main, kwargs={
-                'command': 'gphoto2 --stdout --capture-movie',
+                #'command': 'gphoto2 --stdout --capture-movie',
+                'command': 'gst-launch-1.0 videotestsrc ! video/x-raw,format=I420,width=1056,height=704,framerate=10/1 ! avenc_mjpeg ! jpegparse ! fdsink',
+                'width': 1056,
+                'height': 704,
                 'title': "Microscope"
             })
             self.processes['microscope'].start()

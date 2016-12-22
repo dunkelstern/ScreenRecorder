@@ -12,13 +12,7 @@ gi.require_version('Gtk', '3.0')
 # Import GStreamer
 from gi.repository import Gst, GObject, Gtk
 
-from .GtkPlaybackWindow import PlaybackWindow
-
-available_hwaccels = [
-    'opengl',
-    'vaapi',
-    'xvideo'
-]
+from .GtkPlaybackWindow import PlaybackWindow, available_hwaccels
 
 # This one is a Webcam window
 class V4L2Window(PlaybackWindow):
@@ -31,10 +25,9 @@ class V4L2Window(PlaybackWindow):
         self.width = width
         self.height = height
         self.framerate = framerate
-        self.hwaccel = hwaccel
 
         # Build window
-        super().__init__(data=device, title=title)
+        super().__init__(data=device, title=title, hwaccel=hwaccel)
 
         # No additional window elements, just show the window with fixed width and height
         self.show(width=int(width/2), height=int(height/2), fixed=True)
@@ -114,43 +107,7 @@ class V4L2Window(PlaybackWindow):
             scaler.add_pad(ghost_sink)
             scaler.add_pad(ghost_src)
 
-        sink = Gst.Bin.new('sink')
-        if self.hwaccel == 'vaapi':
-            # output is vaapi because the image is already in VRAM
-            out = Gst.ElementFactory.make('vaapisink')
-            out.set_property('sync', False)
-            sink.add(out)
-
-            ghost_sink = Gst.GhostPad.new('sink', out.get_static_pad('sink'))
-            sink.add_pad(ghost_sink)
-        elif self.hwaccel == 'opengl':
-            # gl accelerated sink
-            videoconvert = Gst.ElementFactory.make('autovideoconvert')
-            sink.add(videoconvert)
-            uploader = Gst.ElementFactory.make('glupload')
-            sink.add(uploader)
-            self.sink = Gst.ElementFactory.make('gtkglsink')
-            self.sink.set_property('sync', False)
-            sink.add(self.sink)
-
-            videoconvert.link(uploader)
-            uploader.link(self.sink)
-
-            ghost_sink = Gst.GhostPad.new('sink', videoconvert.get_static_pad('sink'))
-            sink.add_pad(ghost_sink)
-        elif self.hwaccel == 'xvideo':
-            # xvideo accelerated sink
-            videoconvert = Gst.ElementFactory.make('autovideoconvert')
-            sink.add(videoconvert)
-            self.sink = Gst.ElementFactory.make('xvimagesink')
-            self.sink.set_property('colorkey', 0x00ff00)
-            self.sink.set_property('sync', False)
-            sink.add(self.sink)
-
-            videoconvert.link(self.sink)
-
-            ghost_sink = Gst.GhostPad.new('sink', videoconvert.get_static_pad('sink'))
-            sink.add_pad(ghost_sink)
+        sink = self.make_sink()
 
         # assemble pipeline
         self.pipeline = Gst.Pipeline.new('playback')

@@ -14,18 +14,20 @@ from gi.repository import GObject, Gtk
 # Import GStreamer
 from gi.repository import Gst
 
-from .GtkPlaybackWindow import PlaybackWindow
+from .GtkPlaybackWindow import PlaybackWindow, available_hwaccels
 
 
 # This one is a RTMP stream window
 class RTMPWindow(PlaybackWindow):
+    HW_ACCELS = available_hwaccels
+
     # Initialize window
-    def __init__(self, url='rtmp://localhost:1935/live/stream1', title="RTMP Stream", max_width=1920, max_height=1080):
+    def __init__(self, url='rtmp://localhost:1935/live/stream1', title="RTMP Stream", max_width=1920, max_height=1080, hwaccel='opengl'):
         self.max_width = max_width
         self.max_height = max_height
 
         # Build window
-        super().__init__(data=url, title=title)
+        super().__init__(data=url, title=title, hwaccel=hwaccel)
         # No additional window elements, just show the window with fixed width and height
         self.show(width=int(max_width / 2), height=int(max_height / 2), fixed=True)
         self.lastBuffer = None
@@ -34,10 +36,13 @@ class RTMPWindow(PlaybackWindow):
     # build GStreamer pipeline for this window
     def build_gst_pipeline(self, stream):
 
-        # v4l src
+        # stream src src
         src = Gst.ElementFactory.make('playbin', 'source')
         src.set_property('uri', stream)
         src.set_property('mute', True)
+
+        sink = self.make_sink(sync=True)
+        src.set_property('video-sink', sink)
 
         # assemble pipeline
         self.pipeline = Gst.Pipeline.new('playback')
@@ -61,7 +66,7 @@ class RTMPWindow(PlaybackWindow):
             height = self.max_height
 
         if self.pipeline:
-            self.pipeline.set_state(Gst.State.READY)
+            self.pipeline.set_state(Gst.State.PAUSED)
         self.resize(width, height)
         if self.pipeline:
             self.pipeline.set_state(Gst.State.PLAYING)
