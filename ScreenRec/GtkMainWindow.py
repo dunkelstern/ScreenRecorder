@@ -2,6 +2,7 @@ import json
 import os
 from collections import OrderedDict
 from datetime import datetime
+import platform
 
 # gi is GObject instrospection
 import gi
@@ -16,6 +17,7 @@ from gi.repository import Gtk, Gio, GObject, Gdk, GLib
 import multiprocessing as mp
 
 from .V4L2Window import main as v4l2_main
+from .OSXCamWindow import main as osxcam_main
 from .MJPEGPipeWindow import main as mjpeg_main
 from .RTMPWindow import main as rtmp_main
 from .ScreenRecorder import main as record_main
@@ -323,7 +325,18 @@ class ControlWindow(Gtk.Window):
                     'height': 720,
                     'framerate': 20
                 })
+            elif platform.system() == 'Darwin':
+                self.processes['webcam'] = mp.Process(target=osxcam_main, kwargs={
+                    'device': 0,
+                    'title': "Webcam",
+                    'width': 1280,
+                    'height': 720,
+                    'framerate': 25
+                })
+            elif platform.system() == 'Windows':
+                pass
             self.processes['webcam'].start()
+
 
     def on_microscope(self, sender):
         # Microsope window
