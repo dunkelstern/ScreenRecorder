@@ -323,7 +323,8 @@ class ControlWindow(Gtk.Window):
                     'mime': "image/jpeg",
                     'width': 1280,
                     'height': 720,
-                    'framerate': 20
+                    'framerate': 30,
+                    'hwaccel': 'opengl'
                 })
             elif platform.system() == 'Darwin':
                 self.processes['webcam'] = mp.Process(target=osxcam_main, kwargs={

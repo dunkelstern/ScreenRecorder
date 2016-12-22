@@ -4,6 +4,8 @@ import sys
 import gi
 
 # we need GStreamer 1.0 and Gtk 3.0
+from ScreenRec.tools import dump_pipeline
+
 gi.require_version('Gst', '1.0')
 gi.require_version('Gtk', '3.0')
 
@@ -12,15 +14,24 @@ from gi.repository import Gst, GObject, Gtk
 
 from .GtkPlaybackWindow import PlaybackWindow
 
+available_hwaccels = [
+    'opengl',
+    'vaapi',
+    'xvideo'
+]
 
 # This one is a Webcam window
 class V4L2Window(PlaybackWindow):
+
+    HW_ACCELS = available_hwaccels
+
     # Initialize window
-    def __init__(self, device='/dev/video0', title="Webcam", mime="image/jpeg", width=1280, height=720, framerate=20):
+    def __init__(self, device='/dev/video0', title="Webcam", mime="image/jpeg", width=1280, height=720, framerate=20, hwaccel='opengl'):
         self.mime = mime
         self.width = width
         self.height = height
         self.framerate = framerate
+        self.hwaccel = hwaccel
 
         # Build window
         super().__init__(data=device, title=title)
@@ -33,51 +44,121 @@ class V4L2Window(PlaybackWindow):
     def build_gst_pipeline(self, device):
 
         # v4l src
-        src = Gst.ElementFactory.make('v4l2src', 'source')
-        src.set_property('device', device)
+        v4lsrc = Gst.ElementFactory.make('v4l2src', 'source')
+        v4lsrc.set_property('device', device)
 
-        # assemble pipeline
-        self.pipeline = Gst.Pipeline.new('playback')
-        self.pipeline.add(src)
+        src = Gst.Bin.new('src')
+        src.add(v4lsrc)
 
         # get stream
-        caps = Gst.Caps.from_string(
-            '{mime},width={width},height={height},framerate={framerate}/1'.format(
-                mime=self.mime,
-                width=self.width,
-                height=self.height,
-                framerate=self.framerate
-            )
+        cap_string = '{mime},width={width},height={height},framerate={framerate}/1'.format(
+            mime=self.mime,
+            width=self.width,
+            height=self.height,
+            framerate=self.framerate
         )
-        filter = Gst.ElementFactory.make('capsfilter')
+        caps = Gst.Caps.from_string(cap_string)
+        filter = Gst.ElementFactory.make('capsfilter', 'sink')
         filter.set_property('caps', caps)
-        self.pipeline.add(filter)
-        src.link(filter)
+        src.add(filter)
+        v4lsrc.link(filter)
 
         if self.mime == 'image/jpeg':
             # parse, decode and scale with hardware acceleration
             parse = Gst.ElementFactory.make('jpegparse')
-            decoder = Gst.ElementFactory.make('vaapijpegdec')
-            self.pipeline.add(parse)
-            self.pipeline.add(decoder)
+            src.add(parse)
+            v4lsrc.link(parse)
+
+            decoder = None
+            if self.hwaccel == 'opengl' or self.hwaccel == 'xvideo':
+                decoder = Gst.ElementFactory.make('jpegdec')
+            elif self.hwaccel == 'vaapi':
+                decoder = Gst.ElementFactory.make('vaapijpegdec')
+
+            src.add(decoder)
             filter.link(parse)
             parse.link(decoder)
-            decoder.link(self.scaler)
+
+            ghost_src = Gst.GhostPad.new('src', decoder.get_static_pad('src'))
+            src.add_pad(ghost_src)
         else:
-            filter.link(self.scaler)
+            ghost_src = Gst.GhostPad.new('src', filter.get_static_pad('src'))
+            src.add_pad(ghost_src)
 
-        self.scaler = Gst.ElementFactory.make('vaapipostproc')
-        self.scaler.set_property('width', int(self.width / 2))
-        self.scaler.set_property('height', int(self.height / 2))
-        self.scaler.set_property('scale-method', 2)
-        self.pipeline.add(self.scaler)
+        scaler = Gst.Bin.new('scaler')
+        if self.hwaccel == 'vaapi':
+            self.scalerObject = Gst.ElementFactory.make('vaapipostproc')
+            self.scalerObject.set_property('width', int(self.width / 2))
+            self.scalerObject.set_property('height', int(self.height / 2))
+            self.scalerObject.set_property('scale-method', 2)
+            scaler.add(self.scalerObject)
 
-        # output is vaapi because the image is already in VRAM
-        sink = Gst.ElementFactory.make('vaapisink')
-        sink.set_property('sync', 'false')
+            ghost_sink = Gst.GhostPad.new('sink', self.scalerObject.get_static_pad('sink'))
+            ghost_src = Gst.GhostPad.new('src', self.scalerObject.get_static_pad('src'))
+            scaler.add_pad(ghost_sink)
+            scaler.add_pad(ghost_src)
+        else:
+            videoscale = Gst.ElementFactory.make('videoscale')
+            scaler.add(videoscale)
 
+            cap_string = 'video/x-raw,width={},height={}'.format(int(self.width / 2), int(self.height / 2))
+            caps = Gst.Caps.from_string(cap_string)
+            self.scalerObject = Gst.ElementFactory.make('capsfilter')
+            self.scalerObject.set_property('caps', caps)
+            scaler.add(self.scalerObject)
+
+            videoscale.link(self.scalerObject)
+
+            ghost_sink = Gst.GhostPad.new('sink', videoscale.get_static_pad('sink'))
+            ghost_src = Gst.GhostPad.new('src', self.scalerObject.get_static_pad('src'))
+            scaler.add_pad(ghost_sink)
+            scaler.add_pad(ghost_src)
+
+        sink = Gst.Bin.new('sink')
+        if self.hwaccel == 'vaapi':
+            # output is vaapi because the image is already in VRAM
+            out = Gst.ElementFactory.make('vaapisink')
+            out.set_property('sync', False)
+            sink.add(out)
+
+            ghost_sink = Gst.GhostPad.new('sink', out.get_static_pad('sink'))
+            sink.add_pad(ghost_sink)
+        elif self.hwaccel == 'opengl':
+            # gl accelerated sink
+            videoconvert = Gst.ElementFactory.make('autovideoconvert')
+            sink.add(videoconvert)
+            uploader = Gst.ElementFactory.make('glupload')
+            sink.add(uploader)
+            self.sink = Gst.ElementFactory.make('gtkglsink')
+            self.sink.set_property('sync', False)
+            sink.add(self.sink)
+
+            videoconvert.link(uploader)
+            uploader.link(self.sink)
+
+            ghost_sink = Gst.GhostPad.new('sink', videoconvert.get_static_pad('sink'))
+            sink.add_pad(ghost_sink)
+        elif self.hwaccel == 'xvideo':
+            # xvideo accelerated sink
+            videoconvert = Gst.ElementFactory.make('autovideoconvert')
+            sink.add(videoconvert)
+            self.sink = Gst.ElementFactory.make('xvimagesink')
+            self.sink.set_property('colorkey', 0x00ff00)
+            self.sink.set_property('sync', False)
+            sink.add(self.sink)
+
+            videoconvert.link(self.sink)
+
+            ghost_sink = Gst.GhostPad.new('sink', videoconvert.get_static_pad('sink'))
+            sink.add_pad(ghost_sink)
+
+        # assemble pipeline
+        self.pipeline = Gst.Pipeline.new('playback')
+        self.pipeline.add(src)
+        self.pipeline.add(scaler)
         self.pipeline.add(sink)
-        self.scaler.link(sink)
+        src.link(scaler)
+        scaler.link(sink)
 
     def on_zoom(self, src):
         width = int(self.width / 2)
@@ -91,13 +172,62 @@ class V4L2Window(PlaybackWindow):
 
         if self.pipeline:
             self.pipeline.set_state(Gst.State.NULL)
-        self.scaler.set_property('width', width)
-        self.scaler.set_property('height', height)
+        if self.hwaccel == 'vaapi':
+            self.scalerObject.set_property('width', width)
+            self.scalerObject.set_property('height', height)
+        else:
+            cap_string = 'video/x-raw,width={},height={}'.format(width, height)
+            caps = Gst.Caps.from_string(cap_string)
+            self.scalerObject.set_property('caps', caps)
+        self.video_area.set_size_request(width, height)
+        self.set_size_request(width, height)
         self.resize(width, height)
         if self.pipeline:
             self.pipeline.set_state(Gst.State.PLAYING)
 
-def main(device='/dev/video0', title="Webcam", mime="image/jpeg", width=1280, height=720, framerate=20):
+    def on_message(self, bus, message):
+        call_super = True
+        t = message.type
+        if t == Gst.MessageType.ERROR:
+            # some error occured, log and stop
+            e, _ = message.parse_error()
+
+            if e.domain == 'gst-resource-error-quark' and e.code == 3:
+                print("Video source not found")
+
+                if self.pipeline:
+                    self.pipeline.set_state(Gst.State.NULL)
+                    v4lsrc = Gst.ElementFactory.make('videotestsrc', 'source')
+
+                    src = Gst.Bin.new('src')
+                    src.add(v4lsrc)
+
+                    # get stream
+                    cap_string = 'video/x-raw,format=NV12,width={width},height={height},framerate={framerate}/1'.format(
+                        width=self.width,
+                        height=self.height,
+                        framerate=self.framerate
+                    )
+                    caps = Gst.Caps.from_string(cap_string)
+                    filter = Gst.ElementFactory.make('capsfilter', 'sink')
+                    filter.set_property('caps', caps)
+                    src.add(filter)
+                    v4lsrc.link(filter)
+
+                    ghost_src = Gst.GhostPad.new('src', filter.get_static_pad('src'))
+                    src.add_pad(ghost_src)
+
+                    original_src = self.pipeline.get_by_name('src')
+                    self.pipeline.remove(original_src)
+                    self.pipeline.add(src)
+                    src.link(self.pipeline.get_by_name('scaler'))
+
+                    self.pipeline.set_state(Gst.State.PLAYING)
+                call_super = False
+        if call_super:
+            super().on_message(bus, message)
+
+def main(device='/dev/video0', title="Webcam", mime="image/jpeg", width=1280, height=720, framerate=20, hwaccel='opengl'):
     print('v4l2 main called')
     window = None
     try:
@@ -109,14 +239,16 @@ def main(device='/dev/video0', title="Webcam", mime="image/jpeg", width=1280, he
             mime=mime,
             width=width,
             height=height,
-            framerate=framerate
+            framerate=framerate,
+            hwaccel=hwaccel
         )
         Gtk.main()
     except Exception as e:
         tb = sys.exc_info()[2]
-        print('v4l2 quitting', e, tb)
+        print('v4l2 quitting', e)
         if window:
             window.quit(None)
+        raise e
 
 # if run as script just display the window
 if __name__ == "__main__":
