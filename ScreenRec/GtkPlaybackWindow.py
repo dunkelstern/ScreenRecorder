@@ -31,13 +31,6 @@ class PlaybackWindow(Gtk.Window):
         # initialize window
         Gtk.Window.__init__(self, title=title)
 
-        # allocate video area
-        if platform.system() != 'Darwin':
-            self.video_area = Gtk.DrawingArea()
-            self.video_area.override_background_color(0, Gdk.RGBA.from_color(Gdk.color_parse("black")))
-            # self.video_area.set_property('force-aspect-ratio', True)
-            self.add(self.video_area)
-
         # add header bar
         self.header = Gtk.HeaderBar()
         self.header.set_show_close_button(True)
@@ -66,24 +59,39 @@ class PlaybackWindow(Gtk.Window):
         # build GStreamer pipeline, will be overridden by subclass
         self.build_gst_pipeline(data)
 
-        if platform.system() == 'Darwin':
-            widget = self.sink.get_property('widget')
-            self.add(widget)
+        try:
+            self.video_area = self.sink.get_property('widget')
+            self.add(self.video_area)
+        except:
+            # allocate video area
+            self.video_area = Gtk.DrawingArea()
+            self.video_area.override_background_color(0, Gdk.RGBA.from_color(Gdk.color_parse("black")))
+            self.video_area.connect('draw', self.draw_callback)
+            self.add(self.video_area)
 
         # on quit run callback to stop pipeline
         self.connect("delete-event", self.quit)
 
+    def draw_callback(self, area, context):
+        width = area.get_allocated_width()
+        height = area.get_allocated_height()
+        context.set_source_rgba(0, 1.0, 0, 1.0)
+        context.rectangle(0, 0, width, height)
+        context.fill()
 
     def show(self, width=640, height=480, fixed=False):
         # show all window elements
         self.show_all()
-        if platform.system() == 'Linux':
-            self.xid = self.video_area.get_property('window').get_xid()
-        elif platform.system() == 'Windows':
+        self.xid = -1
+        try:
+            if platform.system() == 'Linux':
+                self.xid = self.video_area.get_property('window').get_xid()
+        except AttributeError:
             pass
 
         # resize the window and disable resizing by user if needed
         self.set_default_size(width, height)
+        self.video_area.set_size_request(width, height)
         if fixed:
             self.set_resizable(False)
 
@@ -156,5 +164,5 @@ class PlaybackWindow(Gtk.Window):
         if message.get_structure().get_name() == 'prepare-window-handle':
             imagesink = message.src
 
-            if platform.system() == 'Linux':
+            if self.xid >= 0:
                 imagesink.set_window_handle(self.xid)
