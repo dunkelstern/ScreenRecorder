@@ -10,10 +10,6 @@ gi.require_version('Gtk', '3.0')
 # Import GStreamer
 from gi.repository import Gst, GObject, Gtk
 
-# Used for reparenting output window
-gi.require_version('GstVideo', '1.0')
-from gi.repository import GdkX11, GstVideo
-
 from .GtkPlaybackWindow import PlaybackWindow
 
 
