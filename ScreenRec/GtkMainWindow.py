@@ -226,7 +226,10 @@ class ControlWindow(Gtk.Window):
                 for item in setting_type:
                     list_store.append([item])
 
-                combobox.set_active(setting_type.index(default))
+                try:
+                    combobox.set_active(setting_type.index(default))
+                except ValueError:
+                    combobox.set_active(0)
                 combobox.set_name(setting)
                 combobox.connect('changed', lambda combo: self.on_combobox_changed(combo, name))
                 container.attach_next_to(combobox, label, Gtk.PositionType.RIGHT, 1, 1)
