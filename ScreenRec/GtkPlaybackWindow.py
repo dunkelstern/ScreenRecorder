@@ -13,7 +13,16 @@ from gi.repository import Gst
 
 # Used for reparenting output window
 gi.require_version('GstVideo', '1.0')
-from gi.repository import GdkX11, GstVideo  # Needed even if pycharm does not know why!
+from gi.repository import GstVideo
+
+import platform
+if platform.system() == 'Linux':
+    from gi.repository import GdkX11
+elif platform.system() == 'Darwin':
+    #from gi.repository import GdkQuartz
+    pass
+elif platform.system() == 'Windows':
+    pass
 
 
 # Base class for a playback window
@@ -23,10 +32,11 @@ class PlaybackWindow(Gtk.Window):
         Gtk.Window.__init__(self, title=title)
 
         # allocate video area
-        self.video_area = Gtk.DrawingArea()
-        self.video_area.override_background_color(0, Gdk.RGBA.from_color(Gdk.color_parse("black")))
-        # self.video_area.set_property('force-aspect-ratio', True)
-        self.add(self.video_area)
+        if platform.system() != 'Darwin':
+            self.video_area = Gtk.DrawingArea()
+            self.video_area.override_background_color(0, Gdk.RGBA.from_color(Gdk.color_parse("black")))
+            # self.video_area.set_property('force-aspect-ratio', True)
+            self.add(self.video_area)
 
         # add header bar
         self.header = Gtk.HeaderBar()
@@ -56,6 +66,10 @@ class PlaybackWindow(Gtk.Window):
         # build GStreamer pipeline, will be overridden by subclass
         self.build_gst_pipeline(data)
 
+        if platform.system() == 'Darwin':
+            widget = self.sink.get_property('widget')
+            self.add(widget)
+
         # on quit run callback to stop pipeline
         self.connect("delete-event", self.quit)
 
@@ -63,7 +77,10 @@ class PlaybackWindow(Gtk.Window):
     def show(self, width=640, height=480, fixed=False):
         # show all window elements
         self.show_all()
-        self.xid = self.video_area.get_property('window').get_xid()
+        if platform.system() == 'Linux':
+            self.xid = self.video_area.get_property('window').get_xid()
+        elif platform.system() == 'Windows':
+            pass
 
         # resize the window and disable resizing by user if needed
         self.set_default_size(width, height)
@@ -138,4 +155,6 @@ class PlaybackWindow(Gtk.Window):
         # on preparing the window handle reparent
         if message.get_structure().get_name() == 'prepare-window-handle':
             imagesink = message.src
-            imagesink.set_window_handle(self.xid)
+
+            if platform.system() == 'Linux':
+                imagesink.set_window_handle(self.xid)
