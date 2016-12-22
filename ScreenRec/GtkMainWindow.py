@@ -183,7 +183,7 @@ class ControlWindow(Gtk.Window):
         screen_width = Gdk.Screen.get_default().get_width()
         screen_height = Gdk.Screen.get_default().get_height()
         val = getattr(self, 'recording_settings', {})
-        default_encoder = val.get('encoder', 'software')
+        default_screen = val.get('screen', 0)
         default_encoder = val.get('encoder', ScreenRecorder.ENCODERS[0])
         default_file = val.get('filename', '~/Capture/cap-%Y-%m-%d_%H:%M:%S.mkv')
         default_width = val.get('width', screen_width)
@@ -193,6 +193,7 @@ class ControlWindow(Gtk.Window):
 
         self.make_settings_page(container, 'recording_settings',
             OrderedDict([
+                ('screen', ('int', (default_screen, 0, 16))),
                 ('encoder', (ScreenRecorder.ENCODERS, default_encoder)),
                 ('filename', ('filepicker', default_file)),
                 ('width', ('int', (default_width, 0, screen_width))),
@@ -313,14 +314,15 @@ class ControlWindow(Gtk.Window):
         else:
             self.queues['webcam'] = mp.Queue()
             # TODO: implement settings page for webcam
-            self.processes['webcam'] = mp.Process(target=v4l2_main, kwargs={
-                'device': '/dev/video0',
-                'title': "Webcam",
-                'mime': "image/jpeg",
-                'width': 1280,
-                'height': 720,
-                'framerate': 20
-            })
+            if platform.system() == 'Linux':
+                self.processes['webcam'] = mp.Process(target=v4l2_main, kwargs={
+                    'device': '/dev/video0',
+                    'title': "Webcam",
+                    'mime': "image/jpeg",
+                    'width': 1280,
+                    'height': 720,
+                    'framerate': 20
+                })
             self.processes['webcam'].start()
 
     def on_microscope(self, sender):
@@ -373,6 +375,7 @@ class ControlWindow(Gtk.Window):
 
             output_path = datetime.now().strftime(val['filename'])
             self.processes['recorder'] = mp.Process(target=record_main, kwargs={
+                'display': val['screen'],
                 'encoder': val['encoder'],
                 'filename': output_path,
                 'width': val['width'],
