@@ -36,6 +36,10 @@ class V4L2Window(PlaybackWindow):
         src = Gst.ElementFactory.make('v4l2src', 'source')
         src.set_property('device', device)
 
+        # assemble pipeline
+        self.pipeline = Gst.Pipeline.new('playback')
+        self.pipeline.add(src)
+
         # get stream
         caps = Gst.Caps.from_string(
             '{mime},width={width},height={height},framerate={framerate}/1'.format(
@@ -47,31 +51,32 @@ class V4L2Window(PlaybackWindow):
         )
         filter = Gst.ElementFactory.make('capsfilter')
         filter.set_property('caps', caps)
+        self.pipeline.add(filter)
+        src.link(filter)
 
-        # parse, decode and scale with hardware acceleration
-        parse = Gst.ElementFactory.make('jpegparse')
-        decoder = Gst.ElementFactory.make('vaapijpegdec')
+        if self.mime == 'image/jpeg':
+            # parse, decode and scale with hardware acceleration
+            parse = Gst.ElementFactory.make('jpegparse')
+            decoder = Gst.ElementFactory.make('vaapijpegdec')
+            self.pipeline.add(parse)
+            self.pipeline.add(decoder)
+            filter.link(parse)
+            parse.link(decoder)
+            decoder.link(self.scaler)
+        else:
+            filter.link(self.scaler)
+
         self.scaler = Gst.ElementFactory.make('vaapipostproc')
         self.scaler.set_property('width', int(self.width / 2))
         self.scaler.set_property('height', int(self.height / 2))
         self.scaler.set_property('scale-method', 2)
+        self.pipeline.add(self.scaler)
 
         # output is vaapi because the image is already in VRAM
         sink = Gst.ElementFactory.make('vaapisink')
         sink.set_property('sync', 'false')
 
-        # assemble pipeline
-        self.pipeline = Gst.Pipeline.new('playback')
-        self.pipeline.add(src)
-        self.pipeline.add(filter)
-        self.pipeline.add(parse)
-        self.pipeline.add(decoder)
-        self.pipeline.add(self.scaler)
         self.pipeline.add(sink)
-        src.link(filter)
-        filter.link(parse)
-        parse.link(decoder)
-        decoder.link(self.scaler)
         self.scaler.link(sink)
 
     def on_zoom(self, src):
