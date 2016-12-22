@@ -184,6 +184,7 @@ class ControlWindow(Gtk.Window):
         screen_height = Gdk.Screen.get_default().get_height()
         val = getattr(self, 'recording_settings', {})
         default_encoder = val.get('encoder', 'software')
+        default_encoder = val.get('encoder', ScreenRecorder.ENCODERS[0])
         default_file = val.get('filename', '~/Capture/cap-%Y-%m-%d_%H:%M:%S.mkv')
         default_width = val.get('width', screen_width)
         default_height = val.get('height', screen_height)
