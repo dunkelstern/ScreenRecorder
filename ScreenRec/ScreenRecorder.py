@@ -13,7 +13,7 @@ from gi.repository import Gst, GObject
 
 if platform.system() == 'Linux':
     available_encoders = [
-        'software', # Uses libx264 'veryfast' preset, needs much CPU power
+        'x264', # Uses libx264 'veryfast' preset, needs much CPU power
         'vaapi', # Intel CPU driver (only when running Xorg on Intel or Glamour drivers
         'nvenc', # NVidia encoder, needs GTX680 or higher (GK104/Keppler or higher) and ffmpeg with support compiled in
         # TODO: What about AMD graphics card acceleration?
@@ -24,7 +24,10 @@ elif platform.system() == 'Darwin':
         'vtenc_h264_hw'
     ]
 elif platform.system() == 'Windows':
-    available_encoders = []
+    available_encoders = [
+        'openh264',
+        'x264'
+    ]
 
 class ScreenRecorder():
 
@@ -62,9 +65,12 @@ class ScreenRecorder():
             src.set_property('capture-screen-cursor', True)
             src.set_property('device-index', self.display)
         elif platform.system() == 'Windows':
-            pass
-
-        # avfvideosrc capture-screen=true
+            src = Gst.ElementFactory.make('dx9screencapsrc', 'source')
+            src.set_property('x', 0)
+            src.set_property('y', 0)
+            src.set_property('width', self.width - 1)
+            src.set_property('height', self.height - 1)
+            src.set_property('monitor', self.display)
 
         # assemble pipeline
         self.pipeline = Gst.Pipeline.new('playback')
@@ -98,7 +104,7 @@ class ScreenRecorder():
 
             src.link(scaler)
             scaler.link(encoder)
-        elif encoding_method == 'software':
+        elif encoding_method == 'x264':
             # scale, convert and encode with software encoders
             convert = Gst.ElementFactory.make('autovideoconvert')
             self.pipeline.add(convert)
@@ -106,6 +112,33 @@ class ScreenRecorder():
 
             encoder = Gst.ElementFactory.make('x264enc')
             encoder.set_property('speed-preset', 'veryfast')
+
+            if self.scale_width and self.scale_height:
+                scaler = Gst.ElementFactory.make('videoscale')
+                cap_string = 'video/x-raw,width={},height={}'.format(
+                    self.scale_width, self.scale_height
+                )
+                caps = Gst.Caps.from_string(cap_string)
+                filter = Gst.ElementFactory.make('capsfilter')
+                filter.set_property('caps', caps)
+
+                self.pipeline.add(scaler)
+                self.pipeline.add(filter)
+                self.pipeline.add(encoder)
+                convert.link(scaler)
+                scaler.link(filter)
+                filter.link(encoder)
+            else:
+                self.pipeline.add(encoder)
+                convert.link(encoder)
+        elif encoding_method == 'openh264':
+            # scale, convert and encode with software encoders
+            convert = Gst.ElementFactory.make('autovideoconvert')
+            self.pipeline.add(convert)
+            src.link(convert)
+
+            encoder = Gst.ElementFactory.make('openh264enc')
+            encoder.set_property('complexity', 0)
 
             if self.scale_width and self.scale_height:
                 scaler = Gst.ElementFactory.make('videoscale')
@@ -241,7 +274,7 @@ class ScreenRecorder():
             self.subproc = subprocess.Popen(cmd, stdin=self.rfd)
             self.sink.set_property('fd', self.wfd)
         else:
-            # vaapi and software encoders are gstreamer internal
+            # most encoders are gstreamer internal
             self.sink.set_property('location', path)
         self.pipeline.set_state(Gst.State.PLAYING)
 
