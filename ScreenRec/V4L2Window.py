@@ -20,8 +20,8 @@ class V4L2Window(PlaybackWindow):
     HW_ACCELS = available_hwaccels
 
     # Initialize window
-    def __init__(self, device='/dev/video0', title="Webcam", mime="image/jpeg", width=1280, height=720, framerate=20, hwaccel='opengl'):
-        self.mime = mime
+    def __init__(self, device='/dev/video0', title="Webcam", format="image/jpeg", width=1280, height=720, framerate=20, hwaccel='opengl'):
+        self.format = format
         self.width = width
         self.height = height
         self.framerate = framerate
@@ -44,8 +44,8 @@ class V4L2Window(PlaybackWindow):
         src.add(v4lsrc)
 
         # get stream
-        cap_string = '{mime},width={width},height={height},framerate={framerate}/1'.format(
-            mime=self.mime,
+        cap_string = '{format},width={width},height={height},framerate={framerate}/1'.format(
+            format=self.format,
             width=self.width,
             height=self.height,
             framerate=self.framerate
@@ -56,7 +56,7 @@ class V4L2Window(PlaybackWindow):
         src.add(filter)
         v4lsrc.link(filter)
 
-        if self.mime == 'image/jpeg':
+        if self.format == 'image/jpeg':
             # parse, decode and scale with hardware acceleration
             parse = Gst.ElementFactory.make('jpegparse')
             src.add(parse)
@@ -184,7 +184,7 @@ class V4L2Window(PlaybackWindow):
         if call_super:
             super().on_message(bus, message)
 
-def main(device='/dev/video0', title="Webcam", mime="image/jpeg", width=1280, height=720, framerate=20, hwaccel='opengl'):
+def main(device='/dev/video0', title="Webcam", format="image/jpeg", width=1280, height=720, framerate=20, hwaccel='opengl'):
     print('v4l2 main called')
     window = None
     try:
@@ -193,7 +193,7 @@ def main(device='/dev/video0', title="Webcam", mime="image/jpeg", width=1280, he
         window = V4L2Window(
             device=device,
             title=title,
-            mime=mime,
+            format=format,
             width=width,
             height=height,
             framerate=framerate,
@@ -204,7 +204,7 @@ def main(device='/dev/video0', title="Webcam", mime="image/jpeg", width=1280, he
         tb = sys.exc_info()[2]
         print('v4l2 quitting', e)
         if window:
-            window.quit(None)
+            window.quit(None, None)
         raise e
 
 # if run as script just display the window

@@ -16,10 +16,10 @@ from gi.repository import Gtk, Gio, GObject, Gdk, GLib
 
 import multiprocessing as mp
 
-from .V4L2Window import main as v4l2_main
-from .OSXCamWindow import main as osxcam_main
-from .MJPEGPipeWindow import main as mjpeg_main
-from .RTMPWindow import main as rtmp_main
+from .V4L2Window import main as v4l2_main, V4L2Window
+from .OSXCamWindow import main as osxcam_main, OSXCamWindow
+from .MJPEGPipeWindow import main as mjpeg_main, MJPEPPipeWindow
+from .RTMPWindow import main as rtmp_main, RTMPWindow
 from .ScreenRecorder import main as record_main
 from .ScreenRecorder import ScreenRecorder
 
@@ -81,18 +81,13 @@ class ControlWindow(Gtk.Window):
         self.box = Gtk.Box(spacing=10, orientation=Gtk.Orientation.VERTICAL)
         stack.add_titled(self.box, 'exec', 'Run')
 
-        # TODO: make dynamic
-        self.webcam_button = Gtk.Button(label="Webcam")
-        self.webcam_button.connect('clicked', self.on_webcam)
-        self.box.pack_start(self.webcam_button, True, True, 0)
-
-        self.microscope_button = Gtk.Button(label="Microscope")
-        self.microscope_button.connect('clicked', self.on_microscope)
-        self.box.pack_start(self.microscope_button, True, True, 0)
-
-        self.rtmp_button = Gtk.Button(label="iPhone")
-        self.rtmp_button.connect('clicked', self.on_rtmp)
-        self.box.pack_start(self.rtmp_button, True, True, 0)
+        for button in self.button_settings:
+            if 'title' not in button or not button['title']:
+                continue
+            button_widget = Gtk.Button(label=button['title'])
+            button_widget.set_name('source_{}'.format(self.button_settings.index(button)))
+            button_widget.connect('clicked', self.on_button_clicked)
+            self.box.pack_start(button_widget, True, True, 0)
 
         # config section
         self.build_config_section(stack)
@@ -111,6 +106,8 @@ class ControlWindow(Gtk.Window):
         self.connect("delete-event", self.quit)
 
     def load_config(self):
+        self.button_settings = []
+        self.recording_settings = []
         filename = os.path.expanduser('~/.config/ScreenRecorder/default.json')
         if os.path.exists(filename):
             config = json.load(open(filename, 'r'))
@@ -123,6 +120,7 @@ class ControlWindow(Gtk.Window):
             os.makedirs(os.path.dirname(filename))
         config = {}
         config['recording_settings'] = getattr(self, 'recording_settings', {})
+        config['button_settings'] = getattr(self, 'button_settings', [])
         json.dump(config, open(filename, 'w'), indent=4)
 
     def build_config_section(self, stack):
@@ -136,9 +134,16 @@ class ControlWindow(Gtk.Window):
         columns.pack_start(left_column, True, True, 0)
 
         # listview
-        self.list_view = Gtk.TreeView()
+        self.listview_store = Gtk.ListStore(str)
+        self.list_view = Gtk.TreeView.new_with_model(self.listview_store)
         self.list_view.set_size_request(150,300)
+        renderer = Gtk.CellRendererText()
+        column = Gtk.TreeViewColumn("Title", renderer, text=0)
+        self.list_view.append_column(column)
+        self.list_view.connect('cursor-changed', self.on_listview_changed)
         left_column.pack_start(self.list_view, True, True, 0)
+        self.populate_listview()
+        self.current_item = None
 
         # add / delete buttons
         list_view_buttons = Gtk.ActionBar()
@@ -148,35 +153,137 @@ class ControlWindow(Gtk.Window):
         icon = Gio.ThemedIcon(name="list-remove")
         image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
         self.remove_button.set_image(image)
+        self.remove_button.set_sensitive(False)
+        self.remove_button.connect('clicked', self.on_remove_click)
         list_view_buttons.pack_start(self.remove_button)
 
         self.add_button = Gtk.Button()
         icon = Gio.ThemedIcon(name="list-add")
         image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
         self.add_button.set_image(image)
+        self.add_button.connect('clicked', self.on_add_click)
         list_view_buttons.pack_start(self.add_button)
 
         # config column
         self.type_store = Gtk.ListStore(str)
 
-        right_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        right_column.set_homogeneous(False)
-        columns.pack_start(right_column, True, True, 0)
+        self.right_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.right_column.set_homogeneous(False)
+        columns.pack_start(self.right_column, True, True, 0)
         self.config_type_combobox = Gtk.ComboBox.new_with_model(self.type_store)
         renderer_text = Gtk.CellRendererText()
         self.config_type_combobox.pack_start(renderer_text, True)
         self.config_type_combobox.add_attribute(renderer_text, "text", 0)
-        right_column.pack_start(self.config_type_combobox, True, True, 0)
+        self.config_type_combobox.set_sensitive(False)
+        self.config_type_combobox.connect('changed', self.on_config_type_changed)
+        self.right_column.pack_start(self.config_type_combobox, True, True, 0)
 
-        self.config_stack = Gtk.Stack()
-        self.type_store.append(['V4L2 Device'])
-        self.build_v4l2_config(self.config_stack)
+        if platform.system() == 'Linux':
+            self.type_store.append(['V4L2 Device'])
+        if platform.system() == 'Darwin':
+            self.type_store.append(['AV Device'])
         self.type_store.append(['MJPEG Pipe'])
-        self.build_mjpeg_config(self.config_stack)
         self.type_store.append(['Stream URL'])
-        self.build_stream_config(self.config_stack)
 
-        right_column.pack_start(self.config_stack, True, True, 0)
+
+    def on_config_type_changed(self, combo):
+        id = combo.get_active()
+        if id != None:
+            model = combo.get_model()
+            entry = list(model[id])
+
+            print('combo selected', entry[0])
+
+            visible = self.right_column.get_children()
+            if len(visible) > 1:
+                self.right_column.remove(visible[1])
+
+            if entry[0] == 'V4L2 Device':
+                defaults = self.button_settings.get(self.current_item, None)
+                if not defaults or 'title' not in defaults:
+                    defaults = {
+                        'device': '/dev/video0',
+                        'title': "Webcam",
+                        'format': "image/jpeg",
+                        'width': 1280,
+                        'height': 720,
+                        'framerate': 20,
+                        'hwaccel': V4L2Window.HW_ACCELS[0]
+                    }
+
+                page = self.build_v4l2_config(defaults)
+                self.right_column.pack_start(page, True, True, 0)
+                page.show_all()
+            elif entry[0] == 'AV Device':
+                pass
+            elif entry[0] == 'MJPEG Pipe':
+                defaults = self.button_settings.get(self.current_item, None)
+                if not defaults or 'title' not in defaults:
+                    defaults = {
+                        # 'command': 'gphoto2 --stdout --capture-movie',
+                        'command': 'gst-launch-1.0 videotestsrc ! video/x-raw,format=I420,width=1056,height=704,framerate=10/1 ! avenc_mjpeg ! jpegparse ! fdsink',
+                        'width': 1056,
+                        'height': 704,
+                        'title': "MJPEG Pipe",
+                        'hwaccel': MJPEPPipeWindow.HW_ACCELS[0]
+                    }
+                page = self.build_mjpeg_config(defaults)
+                self.right_column.pack_start(page, True, True, 0)
+                page.show_all()
+            elif entry[0] == 'Stream URL':
+                defaults = self.button_settings.get(self.current_item, None)
+                if not defaults or 'title' not in defaults:
+                    defaults = {
+                        'url': 'rtmp://127.0.0.1:1935/live/stream1',
+                        'title': "RTMP Stream",
+                        'max_width': int((1920 / 1080) * 1000),
+                        'max_height': 1000,
+                        'hwaccel': V4L2Window.HW_ACCELS[0]
+                    }
+                page = self.build_stream_config(defaults)
+                self.right_column.pack_start(page, True, True, 0)
+                page.show_all()
+        self.save_config()
+
+    def populate_listview(self):
+        self.listview_store.clear()
+        for item in self.button_settings:
+            if 'title' not in item or not item['title']:
+                continue
+            self.listview_store.append([item['title']])
+
+        # TODO: re-select self.current_item
+
+    def on_listview_changed(self, listview):
+        listview_model = self.list_view.get_model()
+        path, _ = self.list_view.get_cursor()
+        print(list(listview_model))
+        current_entry = list(listview_model).index(list(listview_model[path])) if path else 0
+
+        print(current_entry, 'old', self.current_item)
+
+        new_entry = current_entry
+
+        if self.current_item != new_entry:
+            val = getattr(self, 'button_settings', [])
+            val[self.current_item] = getattr(self, 'current_settings', {})
+            setattr(self, 'button_settings', val)
+            self.save_config()
+
+            self.config_type_combobox.set_sensitive(True)
+            # TODO: set combobox to correct value
+            # self.config_type_combobox.set_active(self.type_store)
+            self.on_config_type_changed(self.config_type_combobox)
+        self.current_item = current_entry
+
+    def on_remove_click(self, button):
+        pass
+
+    def on_add_click(self, button):
+        if len(list(self.listview_store)) == 0:
+            self.current_item = 0
+        self.listview_store.append(['Unnamed'])
+        self.list_view.set_cursor(len(self.listview_store))
 
     def build_recording_config_section(self, stack):
         container = Gtk.Grid()
@@ -296,79 +403,80 @@ class ControlWindow(Gtk.Window):
             setattr(self, name, val)
             self.save_config()
 
-    def build_v4l2_config(self, stack):
-        pass
+    def build_v4l2_config(self, defaults):
+        container = Gtk.Grid()
 
-    def build_mjpeg_config(self, stack):
-        pass
+        screen_width = Gdk.Screen.get_default().get_width()
+        screen_height = Gdk.Screen.get_default().get_height()
 
-    def build_stream_config(self, stack):
-        pass
+        setattr(self, 'current_settings', { 'type': 'v4l2' })
+        self.make_settings_page(container, 'current_settings',
+            OrderedDict([
+                ('title', ('string', defaults['title'])),
+                ('device', ('filepicker', defaults['device'])),
+                ('format', ('string', defaults['format'])),
+                ('width', ('int', (defaults['width'], 0, screen_width))),
+                ('height', ('int', (defaults['height'], 0, screen_height))),
+                ('framerate', ('int', (defaults['framerate'], 1, 120))),
+                ('hwaccel', (V4L2Window.HW_ACCELS, defaults['hwaccel']))
+            ])
+        )
+        return container
+
+    def build_mjpeg_config(self, defaults):
+        container = Gtk.Grid()
+
+        screen_width = Gdk.Screen.get_default().get_width()
+        screen_height = Gdk.Screen.get_default().get_height()
+
+        setattr(self, 'current_settings', { 'type': 'mjpeg' })
+        self.make_settings_page(container, 'current_settings',
+            OrderedDict([
+                ('title', ('string', defaults['title'])),
+                ('command', ('string', defaults['command'])),
+                ('width', ('int', (defaults['width'], 0, screen_width))),
+                ('height', ('int', (defaults['height'], 0, screen_height))),
+                ('hwaccel', (MJPEPPipeWindow.HW_ACCELS, defaults['hwaccel']))
+            ])
+        )
+        return container
+
+    def build_stream_config(self, defaults):
+        container = Gtk.Grid()
+
+        screen_width = Gdk.Screen.get_default().get_width()
+        screen_height = Gdk.Screen.get_default().get_height()
+
+        setattr(self, 'current_settings', { 'type': 'stream' })
+        self.make_settings_page(container, 'current_settings',
+            OrderedDict([
+                ('title', ('string', defaults['title'])),
+                ('url', ('string', defaults['url'])),
+                ('max_width', ('int', (defaults['max_width'], 0, screen_width))),
+                ('max_height', ('int', (defaults['max_height'], 0, screen_height))),
+                ('hwaccel', (RTMPWindow.HW_ACCELS, defaults['hwaccel']))
+            ])
+        )
+        return container
 
     def present_window(self, window):
         self.windows[window].set_visible(True)
         self.windows[window].present()
 
-    def on_webcam(self, sender):
-        # Webcam window
-        if 'webcam' in self.processes and self.processes['webcam'].is_alive():
-            self.queues['webcam'].put('raise')
-        else:
-            self.queues['webcam'] = mp.Queue()
-            # TODO: implement settings page for webcam
-            if platform.system() == 'Linux':
-                self.processes['webcam'] = mp.Process(target=v4l2_main, kwargs={
-                    'device': '/dev/video0',
-                    'title': "Webcam",
-                    'mime': "image/jpeg",
-                    'width': 1280,
-                    'height': 720,
-                    'framerate': 30,
-                    'hwaccel': 'opengl'
-                })
-            elif platform.system() == 'Darwin':
-                self.processes['webcam'] = mp.Process(target=osxcam_main, kwargs={
-                    'device': 0,
-                    'title': "Webcam",
-                    'width': 1280,
-                    'height': 720,
-                    'framerate': 25
-                })
-            elif platform.system() == 'Windows':
-                pass
-            self.processes['webcam'].start()
+    def on_button_clicked(self, button):
+        settings = self.button_settings[button.get_name().replace('source_', '')]
+        config = settings
+        del config['type']
 
-
-    def on_microscope(self, sender):
-        # Microsope window
-        if 'microscope' in self.processes and self.processes['microscope'].is_alive():
-            self.queues['microscope'].put('raise')
-        else:
-            self.queues['microscope'] = mp.Queue()
-            # TODO: implement settings page for mjpeg stream
-            self.processes['microscope'] = mp.Process(target=mjpeg_main, kwargs={
-                #'command': 'gphoto2 --stdout --capture-movie',
-                'command': 'gst-launch-1.0 videotestsrc ! video/x-raw,format=I420,width=1056,height=704,framerate=10/1 ! avenc_mjpeg ! jpegparse ! fdsink',
-                'width': 1056,
-                'height': 704,
-                'title': "Microscope"
-            })
-            self.processes['microscope'].start()
-
-    def on_rtmp(self, sender):
-        # RTMP stream window
-        if 'rtmp' in self.processes and self.processes['rtmp'].is_alive():
-            self.queues['rtmp'].put('raise')
-        else:
-            self.queues['rtmp'] = mp.Queue()
-            # TODO: implement settings page for rtmp
-            self.processes['rtmp'] = mp.Process(target=rtmp_main, kwargs={
-                'url': 'rtmp://127.0.0.1:1935/live/stream1',
-                'title': "RTMP Stream",
-                'max_width': int((1920 / 1080) * 1000),
-                'max_height': 1000
-            })
-            self.processes['rtmp'].start()
+        start = None
+        if settings['type'] == 'v4l2':
+            start = v4l2_main
+        elif settings['type'] == 'mjpeg':
+            start = mjpeg_main
+        elif settings['type'] == 'stream':
+            start = rtmp_main
+        self.processes[button.get_name()] = mp.Process(target=start, kwargs=config)
+        self.processes[button.get_name()].start()
 
     def on_record(self, sender):
         if self.recording:
