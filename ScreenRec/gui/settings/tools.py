@@ -24,7 +24,7 @@ def on_combobox_changed(combo, config):
         setattr(config, combo.get_name(), entry[-1])
 
 
-def make_settings_page(container, config, layout, size_groups = None):
+def make_settings_page(container, config, layout, size_groups=None):
     container.set_row_spacing(10)
     container.set_column_spacing(10)
     container.set_border_width(10)
@@ -34,9 +34,10 @@ def make_settings_page(container, config, layout, size_groups = None):
         label = Gtk.Label(setting.replace("_", " ").title())
         label.set_halign(Gtk.Align.END)
         label.set_xalign(0)
+        label.set_vexpand(False)
         label.set_justify(Gtk.Justification.LEFT)
         container.attach_next_to(label, last_item, Gtk.PositionType.BOTTOM, 1, 1)
-        if size_groups:
+        if size_groups and size_groups[0]:
             size_groups[0].add_widget(label)
 
         if isinstance(setting_type, list):
@@ -75,9 +76,10 @@ def make_settings_page(container, config, layout, size_groups = None):
             except ValueError:
                 combobox.set_active(0)
             combobox.set_name(setting)
+            combobox.set_hexpand(True)
             combobox.connect('changed', on_combobox_changed, config)
             container.attach_next_to(combobox, label, Gtk.PositionType.RIGHT, 1, 1)
-            if size_groups:
+            if size_groups and size_groups[1]:
                 size_groups[1].add_widget(combobox)
         elif setting_type == 'int':
             # spinner
@@ -85,9 +87,10 @@ def make_settings_page(container, config, layout, size_groups = None):
             spinner = Gtk.SpinButton.new(adjustment, 100, 0)
             spinner.set_value(default[0])
             spinner.set_name(setting)
+            spinner.set_hexpand(True)
             spinner.connect('value-changed', on_spinner_changed, config)
             container.attach_next_to(spinner, label, Gtk.PositionType.RIGHT, 1, 1)
-            if size_groups:
+            if size_groups and size_groups[1]:
                 size_groups[1].add_widget(spinner)
         elif setting_type == 'float':
             # spinner with decimal
@@ -95,25 +98,28 @@ def make_settings_page(container, config, layout, size_groups = None):
             spinner = Gtk.SpinButton.new(adjustment, 100, 2)
             spinner.set_value(default[0])
             spinner.set_name(setting)
+            spinner.set_hexpand(True)
             spinner.connect('value-changed', on_spinner_changed, config)
             container.attach_next_to(spinner, label, Gtk.PositionType.RIGHT, 1, 1)
-            if size_groups:
+            if size_groups and size_groups[1]:
                 size_groups[1].add_widget(spinner)
         elif setting_type == 'string':
             # textbox
             textbox = Gtk.Entry()
             textbox.set_text(default)
             textbox.set_name(setting)
+            textbox.set_hexpand(True)
             textbox.connect('changed', on_textbox_changed, config)
             container.attach_next_to(textbox, label, Gtk.PositionType.RIGHT, 1, 1)
-            if size_groups:
+            if size_groups and size_groups[1]:
                 size_groups[1].add_widget(textbox)
         elif setting_type == 'filepicker':
             # file picker box
             picker = Gtk.Entry.new()
             picker.set_text(default)
             picker.set_name(setting)
+            picker.set_hexpand(True)
             picker.connect('changed', on_textbox_changed, config)
             container.attach_next_to(picker, label, Gtk.PositionType.RIGHT, 1, 1)
-            if size_groups:
+            if size_groups and size_groups[1]:
                 size_groups[1].add_widget(picker)

@@ -95,6 +95,9 @@ def on_type_changed(combobox, context):
         right_column.remove(box)
     page = make_button_settings_page(current_item)
     page.set_name('settings')
+    page.set_hexpand(True)
+    page.set_vexpand(True)
+    page.set_valign(Gtk.Align.FILL)
     right_column.pack_start(page, True, True, 0)
     page.show_all()
 
@@ -176,19 +179,23 @@ def build_stack_page(config, size_groups):
     right_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
     right_column.set_homogeneous(False)
     columns.pack_start(right_column, True, True, 0)
+
+    # type combobox
+    config_header = Gtk.HeaderBar()
+    config_header.set_vexpand(False)
+    config_header.set_valign(Gtk.Align.START)
+    right_column.pack_start(config_header, True, True, 0)
     config_type_combobox = Gtk.ComboBox.new_with_model(type_store)
     renderer_text = Gtk.CellRendererText()
     config_type_combobox.pack_start(renderer_text, True)
     config_type_combobox.add_attribute(renderer_text, "text", 0)
     config_type_combobox.connect('changed', on_type_changed, (right_column, config))
-    right_column.pack_start(config_type_combobox, True, True, 0)
+    config_type_combobox.set_vexpand(False)
+    config_header.set_custom_title(config_type_combobox)
     size_groups[1].add_widget(config_type_combobox)
 
-    config_stack = Gtk.Stack()
     for item in ButtonConfig.VALID_SOURCES:
         type_store.append(item)
-
-    right_column.pack_start(config_stack, True, True, 0)
 
     list_view.connect('cursor-changed', on_listview_change, (config, right_column, config_type_combobox))
 
