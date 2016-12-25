@@ -1,4 +1,4 @@
-import sys
+import sys, os
 from datetime import datetime, timedelta
 
 # gi is GObject instrospection
@@ -22,34 +22,50 @@ class PlayerWindow(PlaybackWindow):
     HW_ACCELS = available_hwaccels
 
     # Initialize window
-    def __init__(self, filename='~/Movies/video.mp4', title="Movie Player", max_width=1920, max_height=1080, hwaccel='opengl'):
+    def __init__(self,
+                 filename='~/Movies/video.mp4',
+                 title="Movie Player",
+                 max_width=1920,
+                 max_height=1080,
+                 seek_bar=False,
+                 restart_on_deactivate=True,
+                 auto_play=False,
+                 hwaccel='opengl'):
         self.max_width = max_width
         self.max_height = max_height
+        self.restart_on_deactivate = restart_on_deactivate
+        self.auto_play = auto_play
+        self.seek_bar = seek_bar
 
         # Build window
-        super().__init__(data=filename, title=title, hwaccel=hwaccel)
+        super().__init__(data=filename, title=title, hwaccel=hwaccel, auto_start=self.auto_play)
 
-        # TODO: user interface elements
-        # 'seek_bar',
+        if self.seek_bar:
+            self.seek = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.0, 1.0, 0.001)
+            self.seek.set_draw_value(False)
+            self.seek.set_hexpand(True)
+            self.seek.connect('change-value', self.on_seek)
+            self.header.set_custom_title(self.seek)
 
         self.show(width=int(max_width / 2), height=int(max_height / 2), fixed=True)
         self.lastBuffer = None
         self.zoomed = False
+        self.pipeline.set_state(Gst.State.PAUSED)
 
     # build GStreamer pipeline for this window
     def build_gst_pipeline(self, filename):
         path = os.path.expanduser(filename)
 
         # stream src src
-        src = Gst.ElementFactory.make('playbin', 'source')
-        src.set_property('uri', 'file://' + path)
+        self.src = Gst.ElementFactory.make('playbin', 'source')
+        self.src.set_property('uri', 'file://' + path)
 
         sink = self.make_sink(sync=True)
-        src.set_property('video-sink', sink)
+        self.src.set_property('video-sink', sink)
 
         # assemble pipeline
         self.pipeline = Gst.Pipeline.new('playback')
-        self.pipeline.add(src)
+        self.pipeline.add(self.src)
 
     def on_message(self, bus, message):
         super().on_message(bus, message)
@@ -74,27 +90,46 @@ class PlayerWindow(PlaybackWindow):
         if self.pipeline:
             self.pipeline.set_state(Gst.State.PLAYING)
 
+    def on_seek(self, sender, scroll_type, value):
+        _, max = self.pipeline.query_duration(Gst.Format.TIME)
+        self.pipeline.seek(1.0, Gst.Format.TIME, Gst.SeekFlags.FLUSH, Gst.SeekType.SET, value, Gst.SeekType.NONE, max)
+
     def on_play(self, switch, gparam):
-        # TODO: behaviour
-
-        # 'auto_play',
-        # 'restart_on_deactivate',
-
-        super().on_play(switch, gparam)
         if switch.get_active():
-            GObject.timeout_add(1000, self.on_timeout, None)
+            # user turned on the switch, start the pipeline
+            if self.pipeline:
+                self.pipeline.set_state(Gst.State.PLAYING)
+                if self.seek_bar:
+                    GObject.timeout_add(50, self.on_timeout, None)
+        else:
+            # user turned off the switch, reset pipeline
+            if self.pipeline:
+                if self.restart_on_deactivate:
+                    self.pipeline.set_state(Gst.State.NULL)
+                else:
+                    self.pipeline.set_state(Gst.State.PAUSED)
 
     def on_timeout(self, data):
-        # TODO: remove timer
-        if self.lastBuffer and self.lastBuffer + timedelta(seconds=2) < datetime.now():
-            if self.pipeline:
-                self.pipeline.set_state(Gst.State.NULL)
-            self.switch.set_active(False)
+        if self.switch.get_active() is False or self.pipeline.get_state == Gst.State.PAUSED:
+            return False
 
-            return False  # disable timer
+        _, max = self.pipeline.query_duration(Gst.Format.TIME)
+        _, current = self.pipeline.query_position(Gst.Format.TIME)
+        self.seek.set_range(0, max)
+        self.seek.set_value(current)
+
         return True  # call again
 
-def main(filename='~/Movies/video.mp4', title="Movie Player", max_width=1920, max_height=1080):
+
+def main(
+        filename='~/Movies/video.mp4',
+        title="Movie Player",
+        max_width=1920,
+        max_height=1080,
+        seek_bar=False,
+        restart_on_deactivate=True,
+        auto_play=False,
+        hwaccel='opengl'):
     print('player main called')
     window = None
     try:
@@ -104,7 +139,11 @@ def main(filename='~/Movies/video.mp4', title="Movie Player", max_width=1920, ma
             filename=filename,
             title=title,
             max_width=max_width,
-            max_height=max_height
+            max_height=max_height,
+            seek_bar=seek_bar,
+            restart_on_deactivate=restart_on_deactivate,
+            auto_play=auto_play,
+            hwaccel=hwaccel
         )
         Gtk.main()
     except Exception as e:
