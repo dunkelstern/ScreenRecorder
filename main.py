@@ -1,4 +1,6 @@
 # gi is GObject instrospection
+import signal
+
 import gi
 
 # we need GStreamer 1.0 and Gtk 3.0
@@ -10,7 +12,12 @@ from gi.repository import Gtk, GObject
 
 from ScreenRec.gui.GtkMainWindow import ControlWindow
 
+
 if __name__ == "__main__":
-	GObject.threads_init()
-	ControlWindow()
-	Gtk.main()
+    signal.signal(signal.SIGINT, signal.SIG_DFL)  # Allow quitting by SIGINT/Ctrl+C
+    try:
+        GObject.threads_init()
+        ControlWindow()
+        Gtk.main()
+    except KeyboardInterrupt:
+        Gtk.main_quit()
