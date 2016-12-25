@@ -398,6 +398,6 @@ if __name__ == "__main__":
         height=args.height,
         scale_width=args.scaled_width,
         scale_height=args.scaled_height,
-        encoder=args.encoder[0],
+        encoder=args.encoder,
         display=args.display
     )
