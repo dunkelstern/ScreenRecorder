@@ -307,6 +307,9 @@ class ScreenRecorder:
 
 
 def main(filename='~/capture.mkv', width=1920, height=1080, scale_width=None, scale_height=None, encoder=None, display=0):
+    from setproctitle import setproctitle
+    setproctitle('ScreenRecorder - ScreenCapture for display {}'.format(display))
+
     # Initialize Gstreamer
     GObject.threads_init()
     mainloop = GObject.MainLoop()

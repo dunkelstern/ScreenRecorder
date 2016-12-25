@@ -184,6 +184,9 @@ class V4L2Window(PlaybackWindow):
             super().on_message(bus, message)
 
 def main(device='/dev/video0', title="Webcam", format="image/jpeg", width=1280, height=720, framerate=20, hwaccel='opengl'):
+    from setproctitle import setproctitle
+    setproctitle('ScreenRecorder - V4LWindow: {}'.format(title))
+
     print('v4l2 main called')
     window = None
     try:

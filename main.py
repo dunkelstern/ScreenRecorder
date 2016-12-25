@@ -14,6 +14,9 @@ from ScreenRec.gui.GtkMainWindow import ControlWindow
 
 
 if __name__ == "__main__":
+    from setproctitle import setproctitle
+    setproctitle('ScreenRecorder - Main Window')
+
     signal.signal(signal.SIGINT, signal.SIG_DFL)  # Allow quitting by SIGINT/Ctrl+C
     try:
         GObject.threads_init()

@@ -100,6 +100,9 @@ class OSXCamWindow(PlaybackWindow):
             self.pipeline.set_state(Gst.State.PLAYING)
 
 def main(device=0, title="Webcam", width=1280, height=720, framerate=25):
+    from setproctitle import setproctitle
+    setproctitle('ScreenRecorder - OSXCamWindow: {}'.format(title))
+
     print('osxcam main called')
     window = None
     try:

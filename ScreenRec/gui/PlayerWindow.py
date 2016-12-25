@@ -130,6 +130,9 @@ def main(
         restart_on_deactivate=True,
         auto_play=False,
         hwaccel='opengl'):
+    from setproctitle import setproctitle
+    setproctitle('ScreenRecorder - PlayerWindow: {}'.format(title))
+
     print('player main called')
     window = None
     try:
