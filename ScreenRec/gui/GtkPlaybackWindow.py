@@ -32,8 +32,9 @@ elif platform.system() == 'Windows':
 
 # Base class for a playback window
 class PlaybackWindow(Gtk.Window):
-    def __init__(self, data=None, title="Video Out", hwaccel='opengl'):
+    def __init__(self, data=None, title="Video Out", hwaccel='opengl', auto_start=True):
         self.hwaccel = hwaccel
+        self.auto_start = auto_start
 
         # initialize window
         Gtk.Window.__init__(self, title=title)
@@ -136,7 +137,8 @@ class PlaybackWindow(Gtk.Window):
         # connect sync message to reparent output window
         self.bus.connect("sync-message::element", self.on_sync_message)
 
-        self.switch.set_active(True)
+        if self.auto_start:
+            self.switch.set_active(True)
 
     def make_sink(self, sync=False):
         sink = Gst.Bin.new('sink')
