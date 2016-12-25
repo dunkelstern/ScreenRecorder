@@ -26,6 +26,9 @@ def make_button_settings_page(config):
         OrderedDict([
             ('title', ('string', config.title)),
             ('filename', ('filepicker', config.filename)),
+            ('restart_on_deactivate', ('bool', config.restart_on_deactivate)),
+            ('auto_play', ('bool', config.auto_play)),
+            ('seek_bar', ('bool', config.seek_bar)),
             ('hwaccel', (PlayerWindow.HW_ACCELS, config.hwaccel))
         ])
     )

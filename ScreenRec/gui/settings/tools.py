@@ -16,6 +16,10 @@ def on_textbox_changed(textbox, config):
     setattr(config, textbox.get_name(), textbox.get_text())
 
 
+def on_switch_changed(switch, param, config):
+    setattr(config, switch.get_name(), switch.get_active())
+
+
 def on_combobox_changed(combo, config):
     index = combo.get_active()
     if index is not None:
@@ -103,6 +107,14 @@ def make_settings_page(container, config, layout, size_groups=None):
             container.attach_next_to(spinner, label, Gtk.PositionType.RIGHT, 1, 1)
             if size_groups and size_groups[1]:
                 size_groups[1].add_widget(spinner)
+        elif setting_type == 'bool':
+            switch = Gtk.Switch()
+            switch.set_active(default)
+            switch.set_name(setting)
+            switch.connect('notify::active', on_switch_changed, config)
+            container.attach_next_to(switch, label, Gtk.PositionType.RIGHT, 1, 1)
+            if size_groups and size_groups[1]:
+                size_groups[1].add_widget(switch)
         elif setting_type == 'string':
             # textbox
             textbox = Gtk.Entry()
