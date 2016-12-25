@@ -139,7 +139,7 @@ class MJPEGPipeWindow(PlaybackWindow):
         super().quit(sender, param)
 
 
-def main(command='gphoto2 --stdout --capture-movie', title="Webcam", width=1056, height=704):
+def main(command='gphoto2 --stdout --capture-movie', title="Webcam", width=1056, height=704, hwaccel='opengl'):
     print('MJPEG main called')
     window = None
     try:
@@ -147,7 +147,8 @@ def main(command='gphoto2 --stdout --capture-movie', title="Webcam", width=1056,
         Gst.init(None)
         window = MJPEGPipeWindow(
             command=command,
-            title=title
+            title=title,
+            hwaccel=hwaccel
         )
         Gtk.main()
     except Exception as e:

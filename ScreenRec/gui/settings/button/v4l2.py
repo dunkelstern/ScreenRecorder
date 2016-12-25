@@ -13,6 +13,7 @@ from gi.repository import Gtk, Gio, Gdk
 
 from ScreenRec.gui.settings.tools import make_settings_page
 
+# fetch available devices
 v4l2_devices = []
 sys_dir = '/sys/class/video4linux'
 for dev in os.listdir(sys_dir):

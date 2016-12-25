@@ -85,7 +85,7 @@ class RTMPWindow(PlaybackWindow):
             return False  # disable timer
         return True  # call again
 
-def main(url='rtmp://127.0.0.1:1935/live/stream1', title="RTMP Stream", max_width=1920, max_height=1080):
+def main(url='rtmp://127.0.0.1:1935/live/stream1', title="RTMP Stream", max_width=1920, max_height=1080, hwaccel='opengl'):
     print('rtmp main called')
     window = None
     try:
@@ -95,7 +95,8 @@ def main(url='rtmp://127.0.0.1:1935/live/stream1', title="RTMP Stream", max_widt
             url=url,
             title=title,
             max_width=max_width,
-            max_height=max_height
+            max_height=max_height,
+            hwaccel=hwaccel
         )
         Gtk.main()
     except Exception as e:
