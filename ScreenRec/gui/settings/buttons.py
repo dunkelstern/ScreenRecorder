@@ -25,7 +25,7 @@ def child_by_name(container, name):
 def get_current_item(config):
     global current_item_index
 
-    if current_item_index:
+    if current_item_index is not None and len(config.buttons) > current_item_index:
         return config.buttons[current_item_index]
     return ButtonConfig()
 
@@ -33,13 +33,15 @@ def get_current_item(config):
 def set_current_item(config, new):
     global current_item_index
 
-    if current_item_index:
+    if current_item_index is not None and len(config.buttons) > current_item_index:
         config.buttons[current_item_index] = new
+    else:
+        current_item_index = None
 
 
 def remove_current_item(config, listview):
     current_item = get_current_item(config)
-    if current_item:
+    if current_item is not None:
         config.remove_button(current_item.id)
 
 
@@ -50,7 +52,7 @@ def reload_listview(config, listview):
     list_view_store.clear()
     for button in config.buttons:
         list_view_store.append([button.title, button.id])
-    if current_item_index:
+    if current_item_index is not None:
         listview.set_cursor(current_item_index)
 
 
@@ -72,8 +74,9 @@ def on_remove_button(sender, context):
 
     config, listview = context
     remove_current_item(config, listview)
-    if len(config.buttons) == 0:
+    if len(config.buttons) == 0 or len(config.buttons) == current_item_index:
         current_item_index = None
+    listview.set_cursor(0)
     reload_listview(config, listview)
 
 
@@ -109,7 +112,7 @@ def on_listview_change(sender, context):
 
     cursor = sender.get_cursor()
     if cursor.path is not None:
-        if current_item_index:
+        if current_item_index is not None and len(config.buttons) > current_item_index:
             current_item = get_current_item(config)
             sender.get_model()[current_item_index][0] = current_item.title
 
@@ -162,7 +165,6 @@ def build_stack_page(config, size_groups):
     icon = Gio.ThemedIcon(name="gtk-remove")
     image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
     remove_button.set_image(image)
-    # remove_button.set_sensitive(len(config.buttons) > 0)
     remove_button.connect('clicked', on_remove_button, (config, list_view))
     list_view_buttons.pack_start(remove_button)
 

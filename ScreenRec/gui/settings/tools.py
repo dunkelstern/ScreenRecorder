@@ -18,7 +18,7 @@ def on_textbox_changed(textbox, config):
 
 def on_combobox_changed(combo, config):
     index = combo.get_active()
-    if index:
+    if index is not None:
         model = combo.get_model()
         entry = list(model[index])
         setattr(config, combo.get_name(), entry[-1])
