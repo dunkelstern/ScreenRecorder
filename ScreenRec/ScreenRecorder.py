@@ -13,25 +13,44 @@ from gi.repository import Gst, GObject
 
 if platform.system() == 'Linux':
     available_encoders = [
-        'x264', # Uses libx264 'veryfast' preset, needs much CPU power
-        'vaapi', # Intel CPU driver (only when running Xorg on Intel or Glamour drivers
-        'nvenc', # NVidia encoder, needs GTX680 or higher (GK104/Keppler or higher) and ffmpeg with support compiled in
+        'x264',   # Uses libx264 'veryfast' preset, needs much CPU power
+        'vaapi',  # Intel CPU driver (only when running Xorg on Intel or Glamour drivers
+        'nvenc',  # NVidia encoder, needs GTX680 or higher (GK104/Keppler or higher) and ffmpeg with support compiled in
         # TODO: What about AMD graphics card acceleration?
+    ]
+    available_audio_encoders = [
+        'aac',  # using faac
+        'mp3',  # using lame
+        'opus',
+        'vorbis',
+        'speex'
     ]
 elif platform.system() == 'Darwin':
     available_encoders = [
         'vtenc_h264',
         'vtenc_h264_hw'
     ]
+    available_audio_encoders = [
+        'opus',
+        'vorbis',
+        'speex'
+    ]
 elif platform.system() == 'Windows':
     available_encoders = [
         'openh264',
         'x264'
     ]
+    available_audio_encoders = [
+        'opus',
+        'vorbis',
+        'speex'
+    ]
 
-class ScreenRecorder():
+
+class ScreenRecorder:
 
     ENCODERS = available_encoders
+    AUDIO_ENCODERS = available_audio_encoders
 
     def __init__(self, width=1920, height=1080, scale_width=None, scale_height=None, encoder=None, display=0):
         if not encoder in ScreenRecorder.ENCODERS:
@@ -285,6 +304,7 @@ class ScreenRecorder():
             os.close(self.rfd)
         if self.wfd:
             os.close(self.wfd)
+
 
 def main(filename='~/capture.mkv', width=1920, height=1080, scale_width=None, scale_height=None, encoder=None, display=0):
     # Initialize Gstreamer

@@ -14,7 +14,7 @@ from .GtkPlaybackWindow import PlaybackWindow, available_hwaccels
 
 
 # This one is a External MJPEG pipe window (camera liveviews, etc.)
-class MJPEPPipeWindow(PlaybackWindow):
+class MJPEGPipeWindow(PlaybackWindow):
     HW_ACCELS = available_hwaccels
 
     # Initialize window
@@ -145,7 +145,7 @@ def main(command='gphoto2 --stdout --capture-movie', title="Webcam", width=1056,
     try:
         GObject.threads_init()
         Gst.init(None)
-        window = MJPEPPipeWindow(
+        window = MJPEGPipeWindow(
             command=command,
             title=title
         )

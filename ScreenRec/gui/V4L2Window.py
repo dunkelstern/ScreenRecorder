@@ -1,10 +1,8 @@
 import sys
 
-# gi is GObject instrospection
 import gi
 
 # we need GStreamer 1.0 and Gtk 3.0
-from ScreenRec.tools import dump_pipeline
 
 gi.require_version('Gst', '1.0')
 gi.require_version('Gtk', '3.0')
@@ -12,7 +10,8 @@ gi.require_version('Gtk', '3.0')
 # Import GStreamer
 from gi.repository import Gst, GObject, Gtk
 
-from .GtkPlaybackWindow import PlaybackWindow, available_hwaccels
+from ScreenRec.gui.GtkPlaybackWindow import PlaybackWindow, available_hwaccels
+
 
 # This one is a Webcam window
 class V4L2Window(PlaybackWindow):
