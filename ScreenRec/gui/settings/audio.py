@@ -23,8 +23,8 @@ def build_stack_page(config, size_groups):
         OrderedDict([
             ('device', [AudioRecorder.DEVICES, config.device]),
             ('encoder', (AudioRecorder.ENCODERS, config.encoder)),
-            ('samplerate', (['8000', '11025', '22050', '44100', '48000', '96000'], str(config.samplerate))),
-            ('channels', ('int', (config.channels, 1, 6))),
+#            ('samplerate', (['8000', '11025', '22050', '44100', '48000', '96000'], str(config.samplerate))),
+#            ('channels', ('int', (config.channels, 1, 6))),
             ('bitrate', ('int', (config.bitrate, 64, 256)))
         ]),
         size_groups=size_groups
