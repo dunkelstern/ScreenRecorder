@@ -42,6 +42,10 @@ class V4L2Window(PlaybackWindow):
         src = Gst.Bin.new('src')
         src.add(v4lsrc)
 
+        src_queue = Gst.ElementFactory.make('queue')
+        src.add(src_queue)
+        v4lsrc.link(src_queue)
+
         # get stream
         cap_string = '{format},width={width},height={height},framerate={framerate}/1'.format(
             format=self.format,
@@ -53,7 +57,7 @@ class V4L2Window(PlaybackWindow):
         filter = Gst.ElementFactory.make('capsfilter', 'sink')
         filter.set_property('caps', caps)
         src.add(filter)
-        v4lsrc.link(filter)
+        src_queue.link(filter)
 
         if self.format == 'image/jpeg':
             # parse, decode and scale with hardware acceleration
@@ -70,8 +74,11 @@ class V4L2Window(PlaybackWindow):
             src.add(decoder)
             filter.link(parse)
             parse.link(decoder)
+            decoder_queue = Gst.ElementFactory.make('queue')
+            src.add(decoder_queue)
+            decoder.link(decoder_queue)
 
-            ghost_src = Gst.GhostPad.new('src', decoder.get_static_pad('src'))
+            ghost_src = Gst.GhostPad.new('src', decoder_queue.get_static_pad('src'))
             src.add_pad(ghost_src)
         else:
             ghost_src = Gst.GhostPad.new('src', filter.get_static_pad('src'))

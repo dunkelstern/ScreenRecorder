@@ -53,8 +53,8 @@ class SettingsWindow(Gtk.Window):
         stack.add_titled(rec_config, 'recording_config', 'Recording')
 
         # Streaming config
-        stream_config = streaming_config(config.stream_settings, [size_group_left, size_group_right])
-        stack.add_titled(stream_config, 'streaming_config', 'Streaming')
+        # stream_config = streaming_config(config.stream_settings, [size_group_left, size_group_right])
+        # stack.add_titled(stream_config, 'streaming_config', 'Streaming')
 
         # Sound device
         aud_config = audio_config(config.audio_settings, [size_group_left, size_group_right])

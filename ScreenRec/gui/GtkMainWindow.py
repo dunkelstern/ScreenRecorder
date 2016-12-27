@@ -19,7 +19,9 @@ from .OSXCamWindow import main as osxcam_main
 from .MJPEGPipeWindow import main as mjpeg_main
 from .RTMPWindow import main as rtmp_main
 from .PlayerWindow import main as player_main
-from ScreenRec.ScreenRecorder import main as record_main
+from ScreenRec.ScreenRecorder import main as screenrecord_main, ScreenRecorder
+from ScreenRec.AudioRecorder import main as audiorecord_main
+from ScreenRec.RTPMuxer import main as mux_main
 from ScreenRec.model.configfile import config
 
 entrypoints = {
@@ -62,12 +64,12 @@ class ControlWindow(Gtk.Window):
         self.header.pack_end(self.record_button)
 
         # add stream button
-        self.stream_button = Gtk.Button()
-        icon = Gio.ThemedIcon(name="internet-radio-new")
-        image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
-        self.stream_button.set_image(image)
-        self.stream_button.connect("clicked", self.on_stream)
-        self.header.pack_end(self.stream_button)
+        # self.stream_button = Gtk.Button()
+        # icon = Gio.ThemedIcon(name="internet-radio-new")
+        # image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
+        # self.stream_button.set_image(image)
+        # self.stream_button.connect("clicked", self.on_stream)
+        # self.header.pack_end(self.stream_button)
 
         # add config button
         self.config_button = Gtk.Button()
@@ -119,37 +121,55 @@ class ControlWindow(Gtk.Window):
     def on_record(self, sender):
         if self.recording:
             # stop recording
-            if 'recorder' in self.processes and self.processes['recorder'].is_alive():
-                self.processes['recorder'].terminate()
-                del self.processes['recorder']
+            for process in ['audio_recorder', 'screen_recorder', 'muxer']:
+                if process in self.processes and self.processes[process].is_alive():
+                    self.processes[process].terminate()
+                del self.processes[process]
 
             self.recording = False
-            self.stream_button.set_sensitive(True)
+            # self.stream_button.set_sensitive(True)
             icon = Gio.ThemedIcon(name="media-record")
             image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
             self.record_button.set_image(image)
         else:
             # start recording
 
-            if 'recorder' in self.processes and self.processes['recorder'].is_alive():
-                self.processes['recorder'].terminate()
+            for process in ['audio_recorder', 'screen_recorder', 'muxer']:
+                if process in self.processes and self.processes[process].is_alive():
+                    self.processes[process].terminate()
 
             val = config.rec_settings
 
             output_path = datetime.now().strftime(val.filename)
-            self.processes['recorder'] = mp.Process(target=record_main, kwargs={
+
+            self.processes['muxer'] = mp.Process(target=mux_main, kwargs={
+                'filename': output_path,
+                'audio_port': 7654,
+                'video_port': 7655,
+                'audio_codec': config.audio_settings.encoder,
+                'audio_delay': ScreenRecorder.ENCODER_DELAY[val.encoder],
+                'audio_bitrate': config.audio_settings.bitrate
+            })
+            self.processes['screen_recorder'] = mp.Process(target=screenrecord_main, kwargs={
                 'display': val.screen,
                 'encoder': val.encoder,
-                'filename': output_path,
+                'port': 7655,
                 'width': val.width,
                 'height': val.height,
                 'scale_width': None if int(val.scale_width) == 0 else int(val.scale_width),
                 'scale_height': None if int(val.scale_height) == 0 else int(val.scale_height)
             })
-            self.processes['recorder'].start()
+            self.processes['audio_recorder'] = mp.Process(target=audiorecord_main, kwargs={
+                'device': config.audio_settings.device,
+                'port': 7654
+            })
+
+            self.processes['muxer'].start()
+            self.processes['screen_recorder'].start()
+            self.processes['audio_recorder'].start()
 
             self.recording = True
-            self.stream_button.set_sensitive(False)
+            # self.stream_button.set_sensitive(False)
             icon = Gio.ThemedIcon(name="media-playback-stop")
             image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
             self.record_button.set_image(image)

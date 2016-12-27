@@ -7,9 +7,12 @@ import gi
 
 # we need GStreamer 1.0
 gi.require_version('Gst', '1.0')
+gi.require_version('GstNet', '1.0')
+gi.require_version('GstRtsp', '1.0')
+gi.require_version('GstRtspServer', '1.0')
 
 # Import GStreamer
-from gi.repository import Gst, GObject
+from gi.repository import Gst, GObject, GstNet, GstRtsp, GstRtspServer
 
 if platform.system() == 'Linux':
     available_encoders = [
@@ -18,41 +21,31 @@ if platform.system() == 'Linux':
         'nvenc',  # NVidia encoder, needs GTX680 or higher (GK104/Keppler or higher) and ffmpeg with support compiled in
         # TODO: What about AMD graphics card acceleration?
     ]
-    available_audio_encoders = [
-        'aac',  # using faac
-        'mp3',  # using lame
-        'opus',
-        'vorbis',
-        'speex'
-    ]
 elif platform.system() == 'Darwin':
     available_encoders = [
         'vtenc_h264',
         'vtenc_h264_hw'
-    ]
-    available_audio_encoders = [
-        'opus',
-        'vorbis',
-        'speex'
     ]
 elif platform.system() == 'Windows':
     available_encoders = [
         'openh264',
         'x264'
     ]
-    available_audio_encoders = [
-        'opus',
-        'vorbis',
-        'speex'
-    ]
 
 
 class ScreenRecorder:
 
     ENCODERS = available_encoders
-    AUDIO_ENCODERS = available_audio_encoders
+    ENCODER_DELAY = {
+        'x264': 1150,
+        'vaapi': 1000/25,
+        'nvenc': 1000/25,
+        'vtenc_h264': 0,
+        'vtenc_h264_hw': 0,
+        'openh264': 0
+    }
 
-    def __init__(self, width=1920, height=1080, scale_width=None, scale_height=None, encoder=None, display=0):
+    def __init__(self, width=1920, height=1080, scale_width=None, scale_height=None, encoder=None, display=0, port=None):
         if not encoder in ScreenRecorder.ENCODERS:
             raise NotImplementedError("Encoder '{}' not implemented".format(encoder))
 
@@ -62,6 +55,7 @@ class ScreenRecorder:
         self.height = height
         self.encoder = encoder if encoder else ScreenRecorder.ENCODERS[0]
         self.display = display
+        self.port = port
         self.build_gst_pipeline(encoder)
         self.rfd = None
         self.wfd = None
@@ -90,22 +84,23 @@ class ScreenRecorder:
             src.set_property('width', self.width - 1)
             src.set_property('height', self.height - 1)
             src.set_property('monitor', self.display)
+        src.set_property('do-timestamp', True)
+
+        queue = Gst.ElementFactory.make('queue')
 
         # assemble pipeline
         self.pipeline = Gst.Pipeline.new('playback')
+        self.pipeline.use_clock(Gst.SystemClock.obtain())
 
         self.pipeline.add(src)
+        self.pipeline.add(queue)
+        src.link(queue)
 
         print('Using {} encoder'.format(encoding_method))
 
         # nvenc is special as we run ffmpeg as a sub process
         if encoding_method == 'nvenc':
-            return self.build_nvenc_pipeline(src)
-
-        # output part of pipeline
-        parser = Gst.ElementFactory.make('h264parse')
-        muxer = Gst.ElementFactory.make('matroskamux')
-        self.sink = Gst.ElementFactory.make('filesink')
+            return self.build_nvenc_pipeline(queue)
 
         # build encoding pipelines
         encoder = None
@@ -121,16 +116,17 @@ class ScreenRecorder:
             self.pipeline.add(scaler)
             self.pipeline.add(encoder)
 
-            src.link(scaler)
+            queue.link(scaler)
             scaler.link(encoder)
         elif encoding_method == 'x264':
             # scale, convert and encode with software encoders
             convert = Gst.ElementFactory.make('autovideoconvert')
             self.pipeline.add(convert)
-            src.link(convert)
+            queue.link(convert)
 
             encoder = Gst.ElementFactory.make('x264enc')
             encoder.set_property('speed-preset', 'veryfast')
+            #encoder.set_property('tune', 4)  # zero latency
 
             if self.scale_width and self.scale_height:
                 scaler = Gst.ElementFactory.make('videoscale')
@@ -154,7 +150,7 @@ class ScreenRecorder:
             # scale, convert and encode with software encoders
             convert = Gst.ElementFactory.make('autovideoconvert')
             self.pipeline.add(convert)
-            src.link(convert)
+            queue.link(convert)
 
             encoder = Gst.ElementFactory.make('openh264enc')
             encoder.set_property('complexity', 0)
@@ -181,7 +177,7 @@ class ScreenRecorder:
             # scale, convert and encode with software encoders
             convert = Gst.ElementFactory.make('autovideoconvert')
             self.pipeline.add(convert)
-            src.link(convert)
+            queue.link(convert)
 
             encoder = Gst.ElementFactory.make(encoding_method)
 
@@ -204,15 +200,39 @@ class ScreenRecorder:
                 self.pipeline.add(encoder)
                 convert.link(encoder)
 
-        # add remaining parts
-        self.pipeline.add(parser)
-        self.pipeline.add(muxer)
-        self.pipeline.add(self.sink)
+        # output part of pipeline
+        out_queue = Gst.ElementFactory.make('queue')
+        self.pipeline.add(out_queue)
+        encoder.link(out_queue)
 
-        # link remaining parts
-        encoder.link(parser)
-        parser.link(muxer)
-        muxer.link(self.sink)
+        parser = Gst.ElementFactory.make('h264parse')
+        self.pipeline.add(parser)
+        out_queue.link(parser)
+
+        if self.port:
+            rtp_payload = Gst.ElementFactory.make('rtph264pay')
+            rtp_payload.set_property('config-interval', -1)  # send sps and pps with every keyframe
+            self.pipeline.add(rtp_payload)
+            #timestamper = Gst.ElementFactory.make('rtponviftimestamp')
+            #self.pipeline.add(timestamper)
+
+            self.sink = Gst.ElementFactory.make('udpsink')
+            self.sink.set_property('sync', True)
+            self.sink.set_property('host', '127.0.0.1')
+            self.sink.set_property('port', self.port)
+            self.pipeline.add(self.sink)
+
+            parser.link(rtp_payload)
+            #rtp_payload.link(timestamper)
+            #timestamper.link(self.sink)
+            rtp_payload.link(self.sink)
+        else:
+            muxer = Gst.ElementFactory.make('matroskamux')
+            self.pipeline.add(muxer)
+            parser.link(muxer)
+            self.sink = Gst.ElementFactory.make('filesink')
+            self.pipeline.add(self.sink)
+            muxer.link(self.sink)
 
         self.create_bus()
 
@@ -274,28 +294,34 @@ class ScreenRecorder:
             print('ERROR: ', message.parse_error())
             self.stop()
 
-    def start(self, path='~/output.mkv'):
-        path = os.path.expanduser(path)
-        if self.encoder == 'nvenc':
-            # nvenc uses external ffmpeg process
-            (self.rfd, self.wfd) = os.pipe()
-            cmd = [
-                'ffmpeg',
-                '-y',
-                '-f', 'yuv4mpegpipe',
-                '-i', 'pipe:0',
-                '-vf', 'scale',
-                '-pix_fmt', 'yuv420p',
-                '-codec:v', 'h264_nvenc',
-                '-f', 'matroska',
-                path
-            ]
-            self.subproc = subprocess.Popen(cmd, stdin=self.rfd)
-            self.sink.set_property('fd', self.wfd)
-        else:
-            # most encoders are gstreamer internal
-            self.sink.set_property('location', path)
+    def start(self, path=None):
+        if path:
+            path = os.path.expanduser(path)
+            if self.encoder == 'nvenc':
+                # nvenc uses external ffmpeg process
+                (self.rfd, self.wfd) = os.pipe()
+                cmd = [
+                    'ffmpeg',
+                    '-y',
+                    '-f', 'yuv4mpegpipe',
+                    '-i', 'pipe:0',
+                    '-vf', 'scale',
+                    '-pix_fmt', 'yuv420p',
+                    '-codec:v', 'h264_nvenc',
+                    '-f', 'matroska',
+                    path
+                ]
+                self.subproc = subprocess.Popen(cmd, stdin=self.rfd)
+                self.sink.set_property('fd', self.wfd)
+            else:
+                # most encoders are gstreamer internal
+                self.sink.set_property('location', path)
         self.pipeline.set_state(Gst.State.PLAYING)
+
+        clock = self.pipeline.get_pipeline_clock().get_time()
+        print('clock', clock)
+        print('latency', self.pipeline.get_latency())
+        print('delay', self.pipeline.get_delay())
 
     def stop(self):
         self.pipeline.set_state(Gst.State.READY)
@@ -306,7 +332,19 @@ class ScreenRecorder:
             os.close(self.wfd)
 
 
-def main(filename='~/capture.mkv', width=1920, height=1080, scale_width=None, scale_height=None, encoder=None, display=0):
+def main(
+        filename=None,
+        port=None,
+        width=1920,
+        height=1080,
+        scale_width=None,
+        scale_height=None,
+        encoder=None,
+        display=0):
+
+    if not filename and not port:
+        raise AttributeError('you have to set filename or port')
+
     from setproctitle import setproctitle
     setproctitle('ScreenRecorder - ScreenCapture for display {}'.format(display))
 
@@ -316,13 +354,23 @@ def main(filename='~/capture.mkv', width=1920, height=1080, scale_width=None, sc
     Gst.init(None)
 
     # Start screen recorder
-    recorder = ScreenRecorder(width=width,
-                              height=height,
-                              scale_height=scale_height,
-                              scale_width=scale_width,
-                              encoder=encoder,
-                              display=display)
-    recorder.start(path=filename)
+    if filename:
+        recorder = ScreenRecorder(width=width,
+                                  height=height,
+                                  scale_height=scale_height,
+                                  scale_width=scale_width,
+                                  encoder=encoder,
+                                  display=display)
+        recorder.start(path=filename)
+    else:
+        recorder = ScreenRecorder(port=port,
+                                  width=width,
+                                  height=height,
+                                  scale_height=scale_height,
+                                  scale_width=scale_width,
+                                  encoder=encoder,
+                                  display=display)
+        recorder.start()
 
     # run the main loop
     try:
@@ -385,19 +433,38 @@ if __name__ == "__main__":
         help='encoder to use'
     )
     parser.add_argument(
-        'filename',
+        '-p', '--port',
+        type=int,
         nargs=1,
+        dest='port',
+        default=7655,
+        help='do not save to file but stream to port'
+    )
+    parser.add_argument(
+        'filename',
+        nargs="*",
         type=str,
         help='output file'
     )
     args = parser.parse_args()
 
-    main(
-        filename=args.filename[0],
-        width=args.width,
-        height=args.height,
-        scale_width=args.scaled_width,
-        scale_height=args.scaled_height,
-        encoder=args.encoder,
-        display=args.display
-    )
+    if args.filename:
+        main(
+            filename=args.filename[0],
+            width=args.width,
+            height=args.height,
+            scale_width=args.scaled_width,
+            scale_height=args.scaled_height,
+            encoder=args.encoder,
+            display=args.display
+        )
+    else:
+        main(
+            port=args.port[0],
+            width=args.width,
+            height=args.height,
+            scale_width=args.scaled_width,
+            scale_height=args.scaled_height,
+            encoder=args.encoder,
+            display=args.display
+        )
