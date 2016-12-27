@@ -1,0 +1,4 @@
+pygobject
+pulsectl
+pyv4l2
+setproctitle
