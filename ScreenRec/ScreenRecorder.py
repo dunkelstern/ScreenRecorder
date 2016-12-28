@@ -37,7 +37,7 @@ class ScreenRecorder:
     ENCODERS = available_encoders
     ENCODER_DELAY = {
         'x264': 1150,
-        'vaapi': 1000/25,
+        'vaapi': 240,
         'nvenc': 1000/25,
         'vtenc_h264': 0,
         'vtenc_h264_hw': 0,
