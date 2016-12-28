@@ -59,9 +59,9 @@ class MJPEGPipeWindow(PlaybackWindow):
             self.scalerObject.set_property('width', int(self.width/2))
             self.scalerObject.set_property('height', int(self.height/2))
             self.scalerObject.set_property('scale-method', 2)
-            decoder.link(self.scalerObject)
             self.pipeline.add(decoder)
             self.pipeline.add(self.scalerObject)
+            decoder.link(self.scalerObject)
         else:
             decoder = Gst.ElementFactory.make('jpegdec')
             scaler = Gst.ElementFactory.make('videoscale')
