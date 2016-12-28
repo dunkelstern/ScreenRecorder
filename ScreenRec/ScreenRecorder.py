@@ -9,10 +9,9 @@ import gi
 gi.require_version('Gst', '1.0')
 gi.require_version('GstNet', '1.0')
 gi.require_version('GstRtsp', '1.0')
-gi.require_version('GstRtspServer', '1.0')
 
 # Import GStreamer
-from gi.repository import Gst, GObject, GstNet, GstRtsp, GstRtspServer
+from gi.repository import Gst, GObject, GstNet, GstRtsp
 
 if platform.system() == 'Linux':
     available_encoders = [
