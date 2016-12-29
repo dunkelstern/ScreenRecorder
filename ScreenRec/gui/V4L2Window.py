@@ -1,4 +1,5 @@
-import sys
+import sys, os, subprocess, platform
+from time import sleep
 
 import gi
 
@@ -8,7 +9,7 @@ gi.require_version('Gst', '1.0')
 gi.require_version('Gtk', '3.0')
 
 # Import GStreamer
-from gi.repository import Gst, GObject, Gtk
+from gi.repository import Gst, GObject, Gtk, Gio
 
 from ScreenRec.gui.GtkPlaybackWindow import PlaybackWindow, available_hwaccels
 
@@ -24,11 +25,26 @@ class V4L2Window(PlaybackWindow):
         self.width = width
         self.height = height
         self.framerate = framerate
+        self.device = device
 
         # Build window
         super().__init__(data=device, title=title, hwaccel=hwaccel)
 
-        # No additional window elements, just show the window with fixed width and height
+        if platform.system() == 'Linux':
+            settings_button = Gtk.Button()
+            icon = Gio.ThemedIcon(name="preferences-system")
+            image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
+            settings_button.set_image(image)
+            settings_button.connect('clicked', self.on_settings)
+            self.header.pack_end(settings_button)
+
+            focus_button = Gtk.Button()
+            icon = Gio.ThemedIcon(name="video-display-symbolic")
+            image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.BUTTON)
+            focus_button.set_image(image)
+            focus_button.connect('clicked', self.on_focus)
+            self.header.pack_end(focus_button)
+
         self.show(width=int(width/2), height=int(height/2), fixed=True)
         self.zoomed = False
 
@@ -147,6 +163,21 @@ class V4L2Window(PlaybackWindow):
         self.resize(width, height)
         if self.pipeline:
             self.pipeline.set_state(Gst.State.PLAYING)
+
+    def on_focus(self, src):
+        subprocess.run(['/usr/bin/v4l2-ctl', '-d', self.device, '-c', 'focus_auto=1'])
+        sleep(5)
+        subprocess.run(['/usr/bin/v4l2-ctl', '-d', self.device, '-c', 'focus_auto=0'])
+
+    def on_settings(self, src):
+        settings_panels = [
+            '/usr/bin/qv4l2',
+            '/usr/bin/v4l2ucp'
+        ]
+        for panel in settings_panels:
+            if os.path.exists(panel):
+                subprocess.Popen([panel])
+                break
 
     def on_message(self, bus, message):
         call_super = True
