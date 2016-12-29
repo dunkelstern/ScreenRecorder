@@ -85,7 +85,14 @@ class RTMPWindow(PlaybackWindow):
             return False  # disable timer
         return True  # call again
 
-def main(url='rtmp://127.0.0.1:1935/live/stream1', title="RTMP Stream", max_width=1920, max_height=1080, hwaccel='opengl'):
+def main(
+    url='rtmp://127.0.0.1:1935/live/stream1',
+    title="RTMP Stream",
+    max_width=1920,
+    max_height=1080,
+    hwaccel='opengl',
+    comm_queues=None):
+
     from setproctitle import setproctitle
     setproctitle('ScreenRecorder - RTMPWindow: {}'.format(title))
 

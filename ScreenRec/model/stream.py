@@ -6,12 +6,12 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gdk
 
 from .config import Config
-from ScreenRec.ScreenRecorder import ScreenRecorder
 
 
 class StreamConfig(Config):
 
     def __init__(self):
+        from ScreenRec.ScreenRecorder import ScreenRecorder
         self.screen = 0
         self.encoder = ScreenRecorder.ENCODERS[0]
         self.url = 'rtmp://127.0.0.1:1935/live/stream'
@@ -37,6 +37,8 @@ class StreamConfig(Config):
         }
 
     def deserialize(self, data):
+        from ScreenRec.ScreenRecorder import ScreenRecorder
+
         self.screen = int(data.get('screen', 0))
         self.encoder = data['encoder'] \
             if 'encoder' in data \

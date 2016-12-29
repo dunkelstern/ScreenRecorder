@@ -1,4 +1,4 @@
-import sys, os, subprocess, platform
+import sys, os, subprocess, platform, threading
 from time import sleep
 
 import gi
@@ -13,6 +13,21 @@ from gi.repository import Gst, GObject, Gtk, Gio
 
 from ScreenRec.gui.GtkPlaybackWindow import PlaybackWindow, available_hwaccels
 
+class Watcher(threading.Thread):
+
+    def __init__(self, queues):
+        print(queues)
+        self.outQueue, self.inQueue = queues
+        super().__init__()
+
+    def run(self):
+        quit = False
+        while not quit:
+            command = self.inQueue.get()
+
+            print('v4l2: IPC got {}'.format(command))
+            if 'quit' in command:
+                quit = True
 
 # This one is a Webcam window
 class V4L2Window(PlaybackWindow):
@@ -20,12 +35,27 @@ class V4L2Window(PlaybackWindow):
     HW_ACCELS = available_hwaccels
 
     # Initialize window
-    def __init__(self, device='/dev/video0', title="Webcam", format="image/jpeg", width=1280, height=720, framerate=20, hwaccel='opengl'):
+    def __init__(
+        self,
+        device='/dev/video0',
+        title="Webcam",
+        format="image/jpeg",
+        width=1280,
+        height=720,
+        framerate=20,
+        hwaccel='opengl',
+        comm_queues=None
+    ):
+
         self.format = format
         self.width = width
         self.height = height
         self.framerate = framerate
         self.device = device
+
+        if comm_queues:
+            self.comm = Watcher(comm_queues)
+            self.comm.start()
 
         # Build window
         super().__init__(data=device, title=title, hwaccel=hwaccel)
@@ -44,6 +74,11 @@ class V4L2Window(PlaybackWindow):
             focus_button.set_image(image)
             focus_button.connect('clicked', self.on_focus)
             self.header.pack_end(focus_button)
+
+        if comm_queues:
+            excl_button = Gtk.ToggleButton('Exclusive')
+            excl_button.connect('toggled', self.on_excl)
+            self.header.pack_end(excl_button)
 
         self.show(width=int(width/2), height=int(height/2), fixed=True)
         self.zoomed = False
@@ -179,6 +214,20 @@ class V4L2Window(PlaybackWindow):
                 subprocess.Popen([panel])
                 break
 
+    def on_excl(self, button):
+        if button.get_active():
+            self.comm.outQueue.put({ 'exclusive': 'v4l2' })
+            # TODO: fetch encoder, add tee pad and go into record mode
+        else:
+            self.comm.outQueue.put({ 'cooperative': 'v4l2' })  
+            # TODO: remove encoder from tee
+
+    def on_quit(self, sender, param):
+        if self.comm:
+            self.comm.queue.put({ 'quit': True })
+            self.comm.join()
+        super().on_quit(sender, param)
+
     def on_message(self, bus, message):
         call_super = True
         t = message.type
@@ -221,7 +270,16 @@ class V4L2Window(PlaybackWindow):
         if call_super:
             super().on_message(bus, message)
 
-def main(device='/dev/video0', title="Webcam", format="image/jpeg", width=1280, height=720, framerate=20, hwaccel='opengl'):
+def main(
+    device='/dev/video0',
+    title="Webcam",
+    format="image/jpeg",
+    width=1280,
+    height=720,
+    framerate=20,
+    hwaccel='opengl',
+    comm_queues=None):
+
     from setproctitle import setproctitle
     setproctitle('ScreenRecorder - V4LWindow: {}'.format(title))
 
@@ -237,7 +295,8 @@ def main(device='/dev/video0', title="Webcam", format="image/jpeg", width=1280, 
             width=width,
             height=height,
             framerate=framerate,
-            hwaccel=hwaccel
+            hwaccel=hwaccel,
+            comm_queues=comm_queues
         )
         Gtk.main()
     except Exception as e:

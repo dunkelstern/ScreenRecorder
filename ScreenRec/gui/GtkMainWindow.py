@@ -1,4 +1,5 @@
 import platform
+import threading
 from datetime import datetime
 
 import gi
@@ -33,16 +34,81 @@ entrypoints = {
     'player': player_main
 }
 
+class QueueManager(threading.Thread):
+
+    def __init__(self):
+        self.ctx = mp.get_context('spawn')
+        self.queue = self.ctx.Queue()
+        self.outQueues = {}
+        self.processes = {}
+        self.process_info = {}
+        super().__init__()
+        
+    def run(self):
+        quit = False
+        while not quit:
+            command = self.queue.get()
+
+            if 'quit' in command:
+                print('MainWindow: IPC quitting')
+                quit = True
+            if 'terminate' in command:
+                if command['terminate'] in self.process_info:
+                    print('MainWindow: IPC terminating {}'.format(
+                        self.process_info[command['terminate']]['main']
+                    ))
+                self.terminate(command['terminate'])
+            if 'execute' in command:
+                print('MainWindow: IPC executing {}'.format(
+                    command['execute']['main']
+                ))
+                self.execute(**command['execute'])
+            if 'exclusive' in command:
+                print('MainWindow: IPC {} going into exclusive mode, terminating screen recorder'.format(
+                    command['exclusive']
+                ))
+                self.terminate('screen_recorder', forget_everything=False)
+            if 'cooperative' in command:
+                rec = self.process_info.get('screen_recorder', None)
+                if rec:
+                    print('MainWindow: IPC {} resigned exclusive mode, resuming screen recorder'.format(
+                        command['cooperative']
+                    ))
+                    self.execute('screen_recorder', main=rec['main'], kwargs=rec['kwargs'])
+
+        # terminate all other processes
+        for process in self.processes.values():
+            process.terminate()
+
+    def queue(self, id, data):
+        self.outQueues[id].put(data)
+
+    def execute(self, id=None, main=None, kwargs={}):
+        if id and main:
+            self.outQueues[id] = self.ctx.Queue()
+            kwargs['comm_queues'] = (self.queue, self.outQueues[id])
+            self.processes[id] = self.ctx.Process(target=main, kwargs=kwargs)
+            self.processes[id].start()
+            self.process_info[id] = { 'main': main, 'kwargs': kwargs }
+
+    def terminate(self, id, forget_everything=True):
+        if id in self.processes and self.processes[id].is_alive():
+            self.processes[id].terminate()
+        if forget_everything and id in self.process_info:
+            del self.process_info[id]
+        if id in self.processes:
+            del self.processes[id]
+
+
 # Control window
 class ControlWindow(Gtk.Window):
     def __init__(self):
-        mp.set_start_method('spawn')
+        self.comm = QueueManager()
+        self.comm.start()
+        print('Running main window')
 
         self.recording = False
         self.streaming = False
-
-        self.processes = {}
-        self.queues = {}
 
         self.config_window = None
 
@@ -97,6 +163,9 @@ class ControlWindow(Gtk.Window):
         # on quit run callback to stop pipeline
         self.connect("delete-event", self.quit)
 
+    def __del__(self):
+        self.quit()
+
     def fill_source_buttons(self):
         children = list(self.box.get_children())
         for child in children:
@@ -112,19 +181,24 @@ class ControlWindow(Gtk.Window):
     def on_source_button(self, sender, button):
         main = entrypoints.get(button.button_type, None)
         data = button.serialize()
+        id = data['id']
         del data['id']
         del data['button_type']
         if main:
-            self.processes[button.id] = mp.Process(target=main, kwargs=data)
-            self.processes[button.id].start()
+            self.comm.queue.put({
+                'execute': {
+                    'id': id,
+                    'main': main,
+                    'kwargs': data
+                }
+            })
 
     def on_record(self, sender):
         if self.recording:
             # stop recording
-            for process in ['audio_recorder', 'screen_recorder', 'muxer']:
-                if process in self.processes and self.processes[process].is_alive():
-                    self.processes[process].terminate()
-                del self.processes[process]
+            self.comm.queue.put({ 'terminate': 'audio_recorder'})
+            self.comm.queue.put({ 'terminate': 'screen_recorder'})
+            self.comm.queue.put({ 'terminate': 'muxer'})
 
             self.recording = False
             # self.stream_button.set_sensitive(True)
@@ -133,40 +207,55 @@ class ControlWindow(Gtk.Window):
             self.record_button.set_image(image)
         else:
             # start recording
-
-            for process in ['audio_recorder', 'screen_recorder', 'muxer']:
-                if process in self.processes and self.processes[process].is_alive():
-                    self.processes[process].terminate()
+            self.comm.queue.put({ 'terminate': 'audio_recorder'})
+            self.comm.queue.put({ 'terminate': 'screen_recorder'})
+            self.comm.queue.put({ 'terminate': 'muxer'})
 
             val = config.rec_settings
 
             output_path = datetime.now().strftime(val.filename)
 
-            self.processes['muxer'] = mp.Process(target=mux_main, kwargs={
-                'filename': output_path,
-                'audio_port': 7654,
-                'video_port': 7655,
-                'audio_codec': config.audio_settings.encoder,
-                'audio_delay': ScreenRecorder.ENCODER_DELAY[val.encoder],
-                'audio_bitrate': config.audio_settings.bitrate
-            })
-            self.processes['screen_recorder'] = mp.Process(target=screenrecord_main, kwargs={
-                'display': val.screen,
-                'encoder': val.encoder,
-                'port': 7655,
-                'width': val.width,
-                'height': val.height,
-                'scale_width': None if int(val.scale_width) == 0 else int(val.scale_width),
-                'scale_height': None if int(val.scale_height) == 0 else int(val.scale_height)
-            })
-            self.processes['audio_recorder'] = mp.Process(target=audiorecord_main, kwargs={
-                'device': config.audio_settings.device,
-                'port': 7654
+            self.comm.queue.put({
+                'execute': {
+                    'id': 'muxer',
+                    'main': mux_main,
+                    'kwargs': {
+                        'filename': output_path,
+                        'audio_port': 7654,
+                        'video_port': 7655,
+                        'audio_codec': config.audio_settings.encoder,
+                        'audio_delay': ScreenRecorder.ENCODER_DELAY[val.encoder],
+                        'audio_bitrate': config.audio_settings.bitrate
+                    }
+                }
             })
 
-            self.processes['muxer'].start()
-            self.processes['screen_recorder'].start()
-            self.processes['audio_recorder'].start()
+            self.comm.queue.put({
+                'execute': {
+                    'id': 'screen_recorder',
+                    'main': screenrecord_main,
+                    'kwargs': {
+                        'display': val.screen,
+                        'encoder': val.encoder,
+                        'port': 7655,
+                        'width': val.width,
+                        'height': val.height,
+                        'scale_width': None if int(val.scale_width) == 0 else int(val.scale_width),
+                        'scale_height': None if int(val.scale_height) == 0 else int(val.scale_height)
+                    }
+                }
+            })
+
+            self.comm.queue.put({
+                'execute': {
+                    'id': 'audio_recorder',
+                    'main': audiorecord_main,
+                    'kwargs': {
+                        'device': config.audio_settings.device,
+                        'port': 7654
+                    }
+                }
+            })
 
             self.recording = True
             # self.stream_button.set_sensitive(False)
@@ -202,9 +291,9 @@ class ControlWindow(Gtk.Window):
         self.config_window = None
 
     def quit(self, sender, gparam):
-        # terminate all other windows
-        for process in self.processes.values():
-            process.terminate()
+        self.comm.queue.put({ 'quit': True })
+        self.comm.join()
+
         if self.config_window:
             self.config_window.set_visible(False)
         Gtk.main_quit()

@@ -129,7 +129,9 @@ def main(
         seek_bar=False,
         restart_on_deactivate=True,
         auto_play=False,
-        hwaccel='opengl'):
+        hwaccel='opengl',
+        comm_queues=None):
+    
     from setproctitle import setproctitle
     setproctitle('ScreenRecorder - PlayerWindow: {}'.format(title))
 

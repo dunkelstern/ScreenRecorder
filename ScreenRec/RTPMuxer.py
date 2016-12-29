@@ -204,7 +204,8 @@ def main(
         video_port=7655,
         audio_delay=1150,
         audio_codec=None,
-        audio_bitrate=128):
+        audio_bitrate=128,
+        **kwargs):
 
     from setproctitle import setproctitle
     setproctitle('ScreenRecorder - Muxer')

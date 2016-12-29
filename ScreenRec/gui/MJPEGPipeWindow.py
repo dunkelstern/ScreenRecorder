@@ -139,7 +139,14 @@ class MJPEGPipeWindow(PlaybackWindow):
         super().quit(sender, param)
 
 
-def main(command='gphoto2 --stdout --capture-movie', title="Webcam", width=1056, height=704, hwaccel='opengl'):
+def main(
+    command='gphoto2 --stdout --capture-movie',
+    title="Webcam",
+    width=1056,
+    height=704,
+    hwaccel='opengl',
+    comm_queues=None):
+
     from setproctitle import setproctitle
     setproctitle('ScreenRecorder - MJPEGPipeWindow: {}'.format(title))
 

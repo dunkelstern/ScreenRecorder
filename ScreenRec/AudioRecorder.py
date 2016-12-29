@@ -192,7 +192,7 @@ class AudioRecorder:
         self.pipeline.set_state(Gst.State.NULL)
 
 
-def main(filename=None, port=None, device=None, encoder=None, samplerate=44100, channels=2, bitrate=128):
+def main(filename=None, port=None, device=None, encoder=None, samplerate=44100, channels=2, bitrate=128, **kwargs):
     if not device:
         raise AttributeError('no device supplied')
 
