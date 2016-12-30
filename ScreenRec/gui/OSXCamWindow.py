@@ -11,18 +11,38 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gst, GObject, Gtk
 
 from .GtkPlaybackWindow import PlaybackWindow
+from ScreenRec.VideoEncoder import get_recording_sink
+from ScreenRec.gui.ExclusiveRecording import Watcher, make_excl_button
 
 
 # This one is a Webcam window
 class OSXCamWindow(PlaybackWindow):
     # Initialize window
-    def __init__(self, device=0, title="Webcam", width=1280, height=720, framerate=20):
+    def __init__(
+        self,
+        device=0,
+        title="Webcam",
+        width=1280,
+        height=720,
+        framerate=20,
+        id='osxcam',
+        **kwargs
+    ):
+        self.id = id
         self.width = width
         self.height = height
         self.framerate = framerate
+        self.port = 7655  # FIXME: dynamic
+
+        if 'comm_queues' in kwargs:
+            self.comm = Watcher(kwargs['comm_queues'], self)
+            self.comm.start()
 
         # Build window
         super().__init__(data=device, title=title)
+
+        if 'comm_queues' in kwargs:
+            make_excl_button(self)
 
         # No additional window elements, just show the window with fixed width and height
         self.show(width=int(width/2), height=int(height/2), fixed=True)
@@ -52,10 +72,14 @@ class OSXCamWindow(PlaybackWindow):
         self.pipeline.add(filter)
         src.link(filter)
 
+        self.tee = Gst.ElementFactory.make('tee')
+        self.pipeline.add(tee)
+        filter.link(self.tee)
+
         # scale
         scaler = Gst.ElementFactory.make('videoscale')
         self.pipeline.add(scaler)
-        filter.link(scaler)
+        tee.link(scaler)
 
         self.scalecaps = Gst.Caps.from_string(
             'video/x-raw,width={width},height={height}'.format(
@@ -73,6 +97,9 @@ class OSXCamWindow(PlaybackWindow):
 
         self.pipeline.add(self.sink)
         self.scaler.link(self.sink)
+
+        # connect encoder but do not start
+        self.encoder, _ = get_recording_sink(port=self.port)
 
     def on_zoom(self, src):
         width = int(self.width / 2)
@@ -99,29 +126,17 @@ class OSXCamWindow(PlaybackWindow):
         if self.pipeline:
             self.pipeline.set_state(Gst.State.PLAYING)
 
-def main(
-    device=0,
-    title="Webcam",
-    width=1280,
-    height=720,
-    framerate=25,
-    comm_queues=None):
+def main(**kwargs):
     
     from setproctitle import setproctitle
-    setproctitle('ScreenRecorder - OSXCamWindow: {}'.format(title))
+    setproctitle('ScreenRecorder - OSXCamWindow: {}'.format(kwargs.get('title', 'Unknown')))
 
     print('osxcam main called')
     window = None
     try:
         GObject.threads_init()
         Gst.init(None)
-        window = OSXCamWindow(
-            device=device,
-            title=title,
-            width=width,
-            height=height,
-            framerate=framerate
-        )
+        window = OSXCamWindow(**kwargs)
         Gtk.main()
     except Exception as e:
         tb = sys.exc_info()[2]

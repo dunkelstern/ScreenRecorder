@@ -15,6 +15,8 @@ from gi.repository import GObject, Gtk
 from gi.repository import Gst
 
 from .GtkPlaybackWindow import PlaybackWindow, available_hwaccels
+from ScreenRec.VideoEncoder import get_recording_sink
+from ScreenRec.gui.ExclusiveRecording import Watcher, make_excl_button
 
 
 # This one is a RTMP stream window
@@ -22,23 +24,36 @@ class PlayerWindow(PlaybackWindow):
     HW_ACCELS = available_hwaccels
 
     # Initialize window
-    def __init__(self,
-                 filename='~/Movies/video.mp4',
-                 title="Movie Player",
-                 max_width=1920,
-                 max_height=1080,
-                 seek_bar=False,
-                 restart_on_deactivate=True,
-                 auto_play=False,
-                 hwaccel='opengl'):
+    def __init__(
+        self,
+        filename='~/Movies/video.mp4',
+        title="Movie Player",
+        max_width=1920,
+        max_height=1080,
+        seek_bar=False,
+        restart_on_deactivate=True,
+        auto_play=False,
+        hwaccel='opengl',
+        id='player',
+        **kwargs
+    ):
+        self.id = id
         self.max_width = max_width
         self.max_height = max_height
         self.restart_on_deactivate = restart_on_deactivate
         self.auto_play = auto_play
         self.seek_bar = seek_bar
+        self.port = 7655  # FIXME: dynamic
+
+        if 'comm_queues' in kwargs:
+            self.comm = Watcher(kwargs['comm_queues'], self)
+            self.comm.start()
 
         # Build window
         super().__init__(data=filename, title=title, hwaccel=hwaccel, auto_start=self.auto_play)
+
+        if 'comm_queues' in kwargs:
+            make_excl_button(self)
 
         if self.seek_bar:
             self.seek = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.0, 1.0, 0.001)
@@ -60,12 +75,19 @@ class PlayerWindow(PlaybackWindow):
         self.src = Gst.ElementFactory.make('playbin', 'source')
         self.src.set_property('uri', 'file://' + path)
 
+        self.tee = Gst.ElementFactory.make('tee')
+        src.set_property('video-sink', self.tee)
+
         sink = self.make_sink(sync=True)
-        self.src.set_property('video-sink', sink)
 
         # assemble pipeline
         self.pipeline = Gst.Pipeline.new('playback')
         self.pipeline.add(self.src)
+        self.pipeline.add(sink)
+        self.tee.link(sink)
+
+        # connect encoder but do not start
+        self.encoder, _ = get_recording_sink(port=self.port)
 
     def on_message(self, bus, message):
         super().on_message(bus, message)
@@ -121,35 +143,17 @@ class PlayerWindow(PlaybackWindow):
         return True  # call again
 
 
-def main(
-        filename='~/Movies/video.mp4',
-        title="Movie Player",
-        max_width=1920,
-        max_height=1080,
-        seek_bar=False,
-        restart_on_deactivate=True,
-        auto_play=False,
-        hwaccel='opengl',
-        comm_queues=None):
+def main(**kwargs):
     
     from setproctitle import setproctitle
-    setproctitle('ScreenRecorder - PlayerWindow: {}'.format(title))
+    setproctitle('ScreenRecorder - PlayerWindow: {}'.format(kwargs.get('title', 'Unknown')))
 
     print('player main called')
     window = None
     try:
         GObject.threads_init()
         Gst.init(None)
-        window = PlayerWindow(
-            filename=filename,
-            title=title,
-            max_width=max_width,
-            max_height=max_height,
-            seek_bar=seek_bar,
-            restart_on_deactivate=restart_on_deactivate,
-            auto_play=auto_play,
-            hwaccel=hwaccel
-        )
+        window = PlayerWindow(**kwargs)
         Gtk.main()
     except Exception as e:
         tb = sys.exc_info()[2]

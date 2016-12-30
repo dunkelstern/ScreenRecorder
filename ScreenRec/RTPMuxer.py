@@ -1,6 +1,6 @@
 import argparse
 import os, subprocess
-import platform
+import threading
 
 # gi is GObject instrospection
 import gi
@@ -11,34 +11,19 @@ gi.require_version('Gst', '1.0')
 # Import GStreamer
 from gi.repository import Gst, GObject
 
-from ScreenRec.tools import dump_pipeline
-
-available_encoders = []
-if platform.system() == 'Linux':
-    available_encoders = [
-        'aac',  # using faac
-        'mp3',  # using lame
-        'opus',
-        'speex',
-        'vorbis'
-    ]
-elif platform.system() == 'Darwin':
-    available_encoders = [
-        'opus',
-        'speex'
-    ]
-elif platform.system() == 'Windows':
-    available_encoders = [
-        'opus',
-        'speex'
-    ]
-
+from ScreenRec.IPC import IPCWatcher
+from ScreenRec.AudioEncoder import available_encoders
 
 class RTPMuxer:
 
     AUDIO_ENCODERS = available_encoders
 
-    def __init__(self, audio_port=7654, video_port=7655, audio_delay=1150, audio_codec=None, audio_bitrate=128):
+    def __init__(self, audio_port=7654, video_port=7655, audio_delay=1150, audio_codec=None, audio_bitrate=128, **kwargs):
+
+        if 'comm_queues' in kwargs:
+            self.comm = IPCWatcher(kwargs['comm_queues'], self)
+            self.comm.start()
+
         self.audio_port = audio_port
         self.video_port = video_port
         self.audio_delay = audio_delay
@@ -118,11 +103,14 @@ class RTPMuxer:
         video_depay.link(video_parser)
         video_parser.link(video_queue)
 
-        muxer = Gst.ElementFactory.make('matroskamux')
+        # muxer = Gst.ElementFactory.make('matroskamux')
+        muxer = Gst.ElementFactory.make('mpegtsmux')
         self.pipeline.add(muxer)
 
-        audio_pad = muxer.get_request_pad('audio_%u')
-        video_pad = muxer.get_request_pad('video_%u')
+        # audio_pad = muxer.get_request_pad('audio_%u')
+        # video_pad = muxer.get_request_pad('video_%u')
+        audio_pad = muxer.get_request_pad('sink_%d')
+        video_pad = muxer.get_request_pad('sink_%d')
         self.sink = Gst.ElementFactory.make('filesink')
         self.sink.set_property('sync', True)
         self.pipeline.add(self.sink)
@@ -130,6 +118,7 @@ class RTPMuxer:
         # audio encoder
 
         # build encoding pipelines
+        # FIXME: get from AudioEncoder.py
         encoder = None
         if self.audio_codec == 'aac':
             encoder = Gst.ElementFactory.make('faac')
@@ -164,7 +153,6 @@ class RTPMuxer:
 
         muxer.link(self.sink)
 
-        # dump_pipeline(self.pipeline)
         self.create_bus()
 
     def create_bus(self):
@@ -194,19 +182,13 @@ class RTPMuxer:
         self.pipeline.set_state(Gst.State.PLAYING)
 
     def stop(self):
-        self.pipeline.set_state(Gst.State.READY)
-        self.pipeline.set_state(Gst.State.NULL)
+        if self.pipeline:
+            # eos = Gst.Event.new_eos()
+            # self.pipeline.send_event(eos)
+            self.pipeline.set_state(Gst.State.NULL)
 
 
-def main(
-        filename='~/capture.mkv',
-        audio_port=7654,
-        video_port=7655,
-        audio_delay=1150,
-        audio_codec=None,
-        audio_bitrate=128,
-        **kwargs):
-
+def main(**kwargs):
     from setproctitle import setproctitle
     setproctitle('ScreenRecorder - Muxer')
 
@@ -216,14 +198,8 @@ def main(
     Gst.init(None)
 
     # Start screen recorder
-    recorder = RTPMuxer(
-        audio_port=audio_port,
-        video_port=video_port,
-        audio_delay=audio_delay,
-        audio_codec=audio_codec,
-        audio_bitrate=audio_bitrate
-    )
-    recorder.start(path=filename)
+    recorder = RTPMuxer(**kwargs)
+    recorder.start(path=kwargs['filename'])
 
     # run the main loop
     try:

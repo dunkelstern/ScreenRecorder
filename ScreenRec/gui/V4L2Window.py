@@ -1,4 +1,4 @@
-import sys, os, subprocess, platform, threading
+import sys, os, subprocess, platform
 from time import sleep
 
 import gi
@@ -9,25 +9,11 @@ gi.require_version('Gst', '1.0')
 gi.require_version('Gtk', '3.0')
 
 # Import GStreamer
-from gi.repository import Gst, GObject, Gtk, Gio
+from gi.repository import Gst, GObject, Gtk, Gio, GLib
 
 from ScreenRec.gui.GtkPlaybackWindow import PlaybackWindow, available_hwaccels
-
-class Watcher(threading.Thread):
-
-    def __init__(self, queues):
-        print(queues)
-        self.outQueue, self.inQueue = queues
-        super().__init__()
-
-    def run(self):
-        quit = False
-        while not quit:
-            command = self.inQueue.get()
-
-            print('v4l2: IPC got {}'.format(command))
-            if 'quit' in command:
-                quit = True
+from ScreenRec.VideoEncoder import get_recording_sink
+from ScreenRec.gui.ExclusiveRecording import Watcher, make_excl_button
 
 # This one is a Webcam window
 class V4L2Window(PlaybackWindow):
@@ -44,17 +30,19 @@ class V4L2Window(PlaybackWindow):
         height=720,
         framerate=20,
         hwaccel='opengl',
-        comm_queues=None
+        id='v4l2',
+        **kwargs
     ):
-
+        self.id = id
         self.format = format
         self.width = width
         self.height = height
         self.framerate = framerate
         self.device = device
+        self.port = 7655  # FIXME: dynamic
 
-        if comm_queues:
-            self.comm = Watcher(comm_queues)
+        if 'comm_queues' in kwargs:
+            self.comm = Watcher(kwargs['comm_queues'], self)
             self.comm.start()
 
         # Build window
@@ -75,10 +63,8 @@ class V4L2Window(PlaybackWindow):
             focus_button.connect('clicked', self.on_focus)
             self.header.pack_end(focus_button)
 
-        if comm_queues:
-            excl_button = Gtk.ToggleButton('Exclusive')
-            excl_button.connect('toggled', self.on_excl)
-            self.header.pack_end(excl_button)
+        if 'comm_queues' in kwargs:
+            make_excl_button(self)
 
         self.show(width=int(width/2), height=int(height/2), fixed=True)
         self.zoomed = False
@@ -135,6 +121,8 @@ class V4L2Window(PlaybackWindow):
             ghost_src = Gst.GhostPad.new('src', filter.get_static_pad('src'))
             src.add_pad(ghost_src)
 
+        self.tee = Gst.ElementFactory.make('tee')
+
         scaler = Gst.Bin.new('scaler')
         if self.hwaccel == 'vaapi':
             self.scalerObject = Gst.ElementFactory.make('vaapipostproc')
@@ -169,10 +157,16 @@ class V4L2Window(PlaybackWindow):
         # assemble pipeline
         self.pipeline = Gst.Pipeline.new('playback')
         self.pipeline.add(src)
+        self.pipeline.add(self.tee)
         self.pipeline.add(scaler)
         self.pipeline.add(sink)
-        src.link(scaler)
+        src.link(self.tee)
+        self.tee.link(scaler)
         scaler.link(sink)
+
+        # connect encoder but do not start
+        self.encoder, _ = get_recording_sink(port=self.port)
+
 
     def on_zoom(self, src):
         width = int(self.width / 2)
@@ -196,12 +190,12 @@ class V4L2Window(PlaybackWindow):
         self.video_area.set_size_request(width, height)
         self.set_size_request(width, height)
         self.resize(width, height)
-        if self.pipeline:
+        if self.pipeline and self.switch.get_active():
             self.pipeline.set_state(Gst.State.PLAYING)
 
     def on_focus(self, src):
         subprocess.run(['/usr/bin/v4l2-ctl', '-d', self.device, '-c', 'focus_auto=1'])
-        sleep(5)
+        sleep(8)
         subprocess.run(['/usr/bin/v4l2-ctl', '-d', self.device, '-c', 'focus_auto=0'])
 
     def on_settings(self, src):
@@ -214,19 +208,11 @@ class V4L2Window(PlaybackWindow):
                 subprocess.Popen([panel])
                 break
 
-    def on_excl(self, button):
-        if button.get_active():
-            self.comm.outQueue.put({ 'exclusive': 'v4l2' })
-            # TODO: fetch encoder, add tee pad and go into record mode
-        else:
-            self.comm.outQueue.put({ 'cooperative': 'v4l2' })  
-            # TODO: remove encoder from tee
-
     def on_quit(self, sender, param):
         if self.comm:
             self.comm.queue.put({ 'quit': True })
             self.comm.join()
-        super().on_quit(sender, param)
+        super().on_quit(sender, param)     
 
     def on_message(self, bus, message):
         call_super = True
@@ -236,7 +222,7 @@ class V4L2Window(PlaybackWindow):
             e, _ = message.parse_error()
 
             if e.domain == 'gst-resource-error-quark' and e.code == 3:
-                print("Video source not found")
+                # video source not found? display test source instead
 
                 if self.pipeline:
                     self.pipeline.set_state(Gst.State.NULL)
@@ -270,34 +256,17 @@ class V4L2Window(PlaybackWindow):
         if call_super:
             super().on_message(bus, message)
 
-def main(
-    device='/dev/video0',
-    title="Webcam",
-    format="image/jpeg",
-    width=1280,
-    height=720,
-    framerate=20,
-    hwaccel='opengl',
-    comm_queues=None):
+def main(**kwargs):
 
     from setproctitle import setproctitle
-    setproctitle('ScreenRecorder - V4LWindow: {}'.format(title))
+    setproctitle('ScreenRecorder - V4LWindow: {}'.format(kwargs.get('title', 'Unknown')))
 
     print('v4l2 main called')
     window = None
     try:
         GObject.threads_init()
         Gst.init(None)
-        window = V4L2Window(
-            device=device,
-            title=title,
-            format=format,
-            width=width,
-            height=height,
-            framerate=framerate,
-            hwaccel=hwaccel,
-            comm_queues=comm_queues
-        )
+        window = V4L2Window(**kwargs)
         Gtk.main()
     except Exception as e:
         tb = sys.exc_info()[2]

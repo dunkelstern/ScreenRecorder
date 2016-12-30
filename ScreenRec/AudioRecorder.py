@@ -11,47 +11,21 @@ gi.require_version('Gst', '1.0')
 # Import GStreamer
 from gi.repository import Gst, GObject
 
-from ScreenRec.tools import dump_pipeline
-
-available_audio_devices = []
-default_audio_device = None
-
-available_encoders = []
-if platform.system() == 'Linux':
-    available_encoders = [
-        'aac',  # using faac
-        'mp3',  # using lame
-        'opus',
-        'speex',
-        'vorbis'
-    ]
-    from pulsectl import Pulse
-    with Pulse('ScreenRecorder') as pulse:
-        for source in pulse.source_list():
-            available_audio_devices.append(
-                (source.description, source.name)
-            )
-        default_audio_device = pulse.server_info().default_source_name
-elif platform.system() == 'Darwin':
-    available_encoders = [
-        'opus',
-        'speex'
-    ]
-elif platform.system() == 'Windows':
-    available_encoders = [
-        'opus',
-        'speex'
-    ]
-
+from ScreenRec.IPC import IPCWatcher
+from ScreenRec.AudioEncoder import available_encoders, available_audio_devices, default_audio_device
 
 class AudioRecorder:
 
     ENCODERS = available_encoders
     DEVICES = available_audio_devices
 
-    def __init__(self, device=None, encoder=None, samplerate=44100, channels=2, bitrate=128, port=None):
+    def __init__(self, device=None, encoder=None, samplerate=44100, channels=2, bitrate=128, port=None, **kwargs):
         if encoder and encoder not in AudioRecorder.ENCODERS:
             raise NotImplementedError("Encoder '{}' not implemented".format(encoder))
+
+        if 'comm_queues' in kwargs:
+            self.comm = IPCWatcher(kwargs['comm_queues'], self)
+            self.comm.start()
 
         self.encoder = encoder if encoder else AudioRecorder.ENCODERS[0]
         self.device = device
@@ -102,6 +76,7 @@ class AudioRecorder:
         self.pipeline.add(filter)
         src.link(filter)
 
+        # TODO: Export to AudioEncoder.py
         encoder = None
         if not self.port:
             # build encoding pipelines
@@ -152,7 +127,6 @@ class AudioRecorder:
             encoder.link(muxer)
             muxer.link(self.sink)
 
-        # dump_pipeline(self.pipeline)
         self.create_bus()
 
     def create_bus(self):
@@ -188,19 +162,23 @@ class AudioRecorder:
         print('delay', self.pipeline.get_delay())
 
     def stop(self):
-        self.pipeline.set_state(Gst.State.READY)
-        self.pipeline.set_state(Gst.State.NULL)
+        if self.pipeline:
+            eos = Gst.Event.new_eos()
+            self.pipeline.send_event(eos)
+            # msg = self.bus.timed_pop_filtered(Gst.MessageType.EOS | Gst.MessageType.ERROR, Gst.CLOCK_TIME_NONE)
+            # print('AudioRecorder last message:', msg)
+            self.pipeline.set_state(Gst.State.NULL)
 
 
-def main(filename=None, port=None, device=None, encoder=None, samplerate=44100, channels=2, bitrate=128, **kwargs):
-    if not device:
+def main(**kwargs):
+    if 'device' not in kwargs:
         raise AttributeError('no device supplied')
 
-    if not filename and not port:
+    if 'filename' not in kwargs and 'port' not in kwargs:
         raise AttributeError('either set filename or port')
 
     from setproctitle import setproctitle
-    setproctitle('ScreenRecorder - AudioCapture for device {}'.format(device))
+    setproctitle('ScreenRecorder - AudioCapture for device {}'.format(kwargs['device']))
 
     # Initialize Gstreamer
     GObject.threads_init()
@@ -208,20 +186,11 @@ def main(filename=None, port=None, device=None, encoder=None, samplerate=44100, 
     Gst.init(None)
 
     # Start audio recorder
-    if filename:
-        recorder = AudioRecorder(
-            device=device,
-            encoder=encoder,
-            samplerate=samplerate,
-            channels=channels,
-            bitrate=bitrate
-        )
-        recorder.start(path=filename)
+    if 'filename' in kwargs:
+        recorder = AudioRecorder(**kwargs)
+        recorder.start(path=kwargs['filename'])
     else:
-        recorder = AudioRecorder(
-            device=device,
-            port=port
-        )
+        recorder = AudioRecorder(**kwargs)
         recorder.start()
 
     # run the main loop

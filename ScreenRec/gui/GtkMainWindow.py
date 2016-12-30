@@ -68,17 +68,21 @@ class QueueManager(threading.Thread):
                     command['exclusive']
                 ))
                 self.terminate('screen_recorder', forget_everything=False)
+                self.outQueues[command['exclusive']].put({ 'record': 7655 })
             if 'cooperative' in command:
                 rec = self.process_info.get('screen_recorder', None)
                 if rec:
                     print('MainWindow: IPC {} resigned exclusive mode, resuming screen recorder'.format(
                         command['cooperative']
                     ))
+                    self.outQueues[command['cooperative']].put({ 'stop': True })
                     self.execute('screen_recorder', main=rec['main'], kwargs=rec['kwargs'])
 
         # terminate all other processes
-        for process in self.processes.values():
-            process.terminate()
+        for id, process in self.processes.items():
+            if process.is_alive():
+                self.outQueues[id].put({ 'quit': True })
+                # process.terminate()
 
     def queue(self, id, data):
         self.outQueues[id].put(data)
@@ -93,7 +97,8 @@ class QueueManager(threading.Thread):
 
     def terminate(self, id, forget_everything=True):
         if id in self.processes and self.processes[id].is_alive():
-            self.processes[id].terminate()
+            self.outQueues[id].put({ 'quit': True })
+            # self.processes[id].terminate()
         if forget_everything and id in self.process_info:
             del self.process_info[id]
         if id in self.processes:
@@ -181,13 +186,11 @@ class ControlWindow(Gtk.Window):
     def on_source_button(self, sender, button):
         main = entrypoints.get(button.button_type, None)
         data = button.serialize()
-        id = data['id']
-        del data['id']
         del data['button_type']
         if main:
             self.comm.queue.put({
                 'execute': {
-                    'id': id,
+                    'id': data['id'],
                     'main': main,
                     'kwargs': data
                 }

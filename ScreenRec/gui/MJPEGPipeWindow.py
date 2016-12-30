@@ -11,6 +11,8 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gst, Gtk, GObject
 
 from .GtkPlaybackWindow import PlaybackWindow, available_hwaccels
+from ScreenRec.VideoEncoder import get_recording_sink
+from ScreenRec.gui.ExclusiveRecording import Watcher, make_excl_button
 
 
 # This one is a External MJPEG pipe window (camera liveviews, etc.)
@@ -18,7 +20,17 @@ class MJPEGPipeWindow(PlaybackWindow):
     HW_ACCELS = available_hwaccels
 
     # Initialize window
-    def __init__(self, command='gphoto2 --stdout --capture-movie', title='Camera Liveview', width=1056, height=704, hwaccel='opengl'):
+    def __init__(
+        self,
+        command='gphoto2 --stdout --capture-movie',
+        title='Camera Liveview',
+        width=1056,
+        height=704,
+        hwaccel='opengl',
+        id='mjpegstream',
+        **kwargs
+    ):
+        self.id = id
         self.command = shlex.split(command)
         self.subproc = None
         self.wfd = None
@@ -26,10 +38,18 @@ class MJPEGPipeWindow(PlaybackWindow):
         self.zoomed = False
         self.width = width
         self.height = height
+        self.port = 7655  # FIXME: dynamic
+
+        if 'comm_queues' in kwargs:
+            self.comm = Watcher(kwargs['comm_queues'], self)
+            self.comm.start()
 
         # Build window
         super().__init__(title=title, hwaccel=hwaccel)
-        # No additional window elements, just show the window with fixed width and height
+
+        if 'comm_queues' in kwargs:
+            make_excl_button(self)
+
         self.show(width=self.width/2, height=self.height/2, fixed=True)
 
     # build GStreamer pipeline for this window
@@ -51,6 +71,9 @@ class MJPEGPipeWindow(PlaybackWindow):
         parse = Gst.ElementFactory.make('jpegparse')
         self.pipeline.add(parse)
 
+        self.tee = Gst.ElementFactory.make('tee')
+        self.pipeline.add(self.tee)
+
         # decode and scale with hardware acceleration
         decoder = None
         if self.hwaccel == 'vaapi':
@@ -61,7 +84,8 @@ class MJPEGPipeWindow(PlaybackWindow):
             self.scalerObject.set_property('scale-method', 2)
             self.pipeline.add(decoder)
             self.pipeline.add(self.scalerObject)
-            decoder.link(self.scalerObject)
+            decoder.link(self.tee)
+            self.tee.link(self.scalerObject)
         else:
             decoder = Gst.ElementFactory.make('jpegdec')
             scaler = Gst.ElementFactory.make('videoscale')
@@ -72,7 +96,8 @@ class MJPEGPipeWindow(PlaybackWindow):
             self.pipeline.add(decoder)
             self.pipeline.add(self.scalerObject)
             self.pipeline.add(scaler)
-            decoder.link(scaler)
+            decoder.link(self.tee)
+            self.tee.link(scaler)
             scaler.link(self.scalerObject)
 
         sink = self.make_sink()
@@ -82,6 +107,9 @@ class MJPEGPipeWindow(PlaybackWindow):
         filter.link(parse)
         parse.link(decoder)
         self.scalerObject.link(sink)
+
+        # connect encoder but do not start
+        self.encoder, _ = get_recording_sink(port=self.port)
 
     def on_play(self, switch, gparam):
         if switch.get_active():
@@ -139,27 +167,17 @@ class MJPEGPipeWindow(PlaybackWindow):
         super().quit(sender, param)
 
 
-def main(
-    command='gphoto2 --stdout --capture-movie',
-    title="Webcam",
-    width=1056,
-    height=704,
-    hwaccel='opengl',
-    comm_queues=None):
+def main(**kwargs):
 
     from setproctitle import setproctitle
-    setproctitle('ScreenRecorder - MJPEGPipeWindow: {}'.format(title))
+    setproctitle('ScreenRecorder - MJPEGPipeWindow: {}'.format(kwargs.get('title', 'Unknown')))
 
     print('MJPEG main called')
     window = None
     try:
         GObject.threads_init()
         Gst.init(None)
-        window = MJPEGPipeWindow(
-            command=command,
-            title=title,
-            hwaccel=hwaccel
-        )
+        window = MJPEGPipeWindow(**kwargs)
         Gtk.main()
     except Exception as e:
         tb = sys.exc_info()[2]
