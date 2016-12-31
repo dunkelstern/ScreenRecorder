@@ -85,7 +85,7 @@ class PlaybackWindow(Gtk.Window):
     def draw_callback(self, area, context):
         width = area.get_allocated_width()
         height = area.get_allocated_height()
-        context.set_source_rgba(0, 1.0, 0, 1.0)
+        context.set_source_rgba(0, 0, 0, 1.0)
         context.rectangle(0, 0, width, height)
         context.fill()
 
