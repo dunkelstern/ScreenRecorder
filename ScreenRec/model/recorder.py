@@ -25,6 +25,7 @@ class RecorderConfig(Config):
 
         self.scale_width = 0
         self.scale_height = 0
+        self.fps = 30
 
     def serialize(self):
         return {
@@ -33,6 +34,7 @@ class RecorderConfig(Config):
             'filename': self.filename,
             'width': self.width,
             'height': self.height,
+            'fps': self.fps,
             'scale_width': self.scale_width,
             'scale_height': self.scale_height
         }
@@ -56,6 +58,8 @@ class RecorderConfig(Config):
         self.width = int(data.get('width', self.width))
         self.height = Gdk.Screen.get_default().get_height()
         self.height = int(data.get('height', self.height))
+
+        self.fps = int(data.get('fps', self.fps))
 
         self.scale_width = int(data.get('scale_width', 0))
         self.scale_height = int(data.get('scale_height', 0))

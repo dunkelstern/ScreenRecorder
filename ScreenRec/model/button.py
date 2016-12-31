@@ -128,7 +128,7 @@ class ButtonConfig(Config):
                 'device': 0,
                 'width': 1280,
                 'height': 720,
-                'framerate': 25
+                'framerate': 30
             }
         if button_type == 'ks':
             # TODO: windows video device

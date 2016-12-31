@@ -27,6 +27,7 @@ def build_stack_page(config, size_groups):
             ('filename', ('filepicker', config.filename)),
             ('width', ('int', (config.width, 0, screen_width))),
             ('height', ('int', (config.height, 0, screen_height))),
+            ('fps', ('int', (config.fps, 0, 120))),
             ('scale_width', ('int', (config.scale_width, 0, screen_width))),
             ('scale_height', ('int', (config.scale_height, 0, screen_height)))
         ]),

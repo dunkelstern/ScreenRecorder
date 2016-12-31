@@ -35,6 +35,7 @@ class ScreenRecorder:
         self.scale_height = kwargs.get('scale_height', config.rec_settings.scale_height)
         self.width = kwargs.get('width', config.rec_settings.width)
         self.height = kwargs.get('height', config.rec_settings.height)
+        self.fps = kwargs.get('fps', config.rec_settings.fps)
         self.encoder = kwargs.get('encoder', config.rec_settings.encoder)
         if not self.encoder:
             self.encoder = ScreenRecorder.ENCODERS[0]
@@ -82,6 +83,7 @@ class ScreenRecorder:
         sink, self.sink = get_recording_sink(
             scale_width=self.scale_width if self.scale_width else self.width,
             scale_height=self.scale_height if self.scale_height else self.height,
+            fps=self.fps,
             encoder=self.encoder,
             port=self.port
         )

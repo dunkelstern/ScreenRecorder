@@ -55,11 +55,26 @@ def get_recording_sink(**kwargs):
         if not encoder:
             encoder = ScreenRecorder.ENCODERS[0]
         port = kwargs.get('port', None)
+        fps = kwargs.get('fps', config.rec_settings.fps)
 
         print('Using {} encoder'.format(encoder))
 
         # create encoder bin
         enc = Gst.Bin.new('encoder')
+
+        queue = Gst.ElementFactory.make('queue')
+        queue.set_property('max-size-buffers', 200)
+        queue.set_property('max-size-bytes', 104857600)  # 10 MB
+        queue.set_property('max-size-time', 10000000000)  # 10 sec
+        
+        videorate = Gst.ElementFactory.make('videorate')
+        cap_string = 'video/x-raw,framerate={}/1'.format(fps)
+        filter = Gst.ElementFactory.make('capsfilter')
+        caps = Gst.Caps.from_string(cap_string)
+
+        enc.add(queue)
+        enc.add(videorate)
+        queue.link(videorate)
 
         # build encoding pipelines
         src = None
@@ -73,7 +88,7 @@ def get_recording_sink(**kwargs):
             enc.add(scaler)
 
             video_encoder = Gst.ElementFactory.make('vaapih264enc')
-            video_encoder.set_property('keyframe-period', 0)
+            video_encoder.set_property('keyframe-period', fps)
             enc.add(video_encoder)
 
             scaler.link(video_encoder)
@@ -158,6 +173,8 @@ def get_recording_sink(**kwargs):
             src = convert
             sink = video_encoder
 
+        videorate.link(src)
+
         # output part of pipeline
         out_queue = Gst.ElementFactory.make('queue')
         enc.add(out_queue)
@@ -182,14 +199,14 @@ def get_recording_sink(**kwargs):
             parser.link(rtp_payload)
             rtp_payload.link(udpsink)
         else:
-            muxer = Gst.ElementFactory.make('matroskamux')
+            muxer = Gst.ElementFactory.make('mpegtsmux')
             enc.add(muxer)
             parser.link(muxer)
             filesink = Gst.ElementFactory.make('filesink')
             enc.add(filesink)
             muxer.link(filesink)
 
-        ghost_sink = Gst.GhostPad.new('sink', src.get_static_pad('sink'))
+        ghost_sink = Gst.GhostPad.new('sink', queue.get_static_pad('sink'))
         enc.add_pad(ghost_sink)
 
         return enc, filesink

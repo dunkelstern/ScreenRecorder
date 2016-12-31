@@ -66,7 +66,7 @@ class RTPMuxer:
         video_src.set_property('address', '127.0.0.1')
         video_src.set_property('do-timestamp', True)
 
-        video_caps_string = 'application/x-rtp,media=video,payload=96,clock-rate=90000,encoding-name=H264,a-framerate=25'
+        video_caps_string = 'application/x-rtp,media=video,payload=96,clock-rate=90000,encoding-name=H264'
         caps = Gst.Caps.from_string(video_caps_string)
         video_filter = Gst.ElementFactory.make('capsfilter')
         video_filter.set_property('caps', caps)
