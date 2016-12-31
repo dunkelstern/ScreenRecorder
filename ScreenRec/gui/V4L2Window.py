@@ -167,7 +167,6 @@ class V4L2Window(PlaybackWindow):
         # connect encoder but do not start
         self.encoder, _ = get_recording_sink(port=self.port)
 
-
     def on_zoom(self, src):
         width = int(self.width / 2)
         height = int(self.height / 2)
@@ -207,12 +206,6 @@ class V4L2Window(PlaybackWindow):
             if os.path.exists(panel):
                 subprocess.Popen([panel])
                 break
-
-    def on_quit(self, sender, param):
-        if self.comm:
-            self.comm.queue.put({ 'quit': True })
-            self.comm.join()
-        super().on_quit(sender, param)     
 
     def on_message(self, bus, message):
         call_super = True

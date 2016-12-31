@@ -19,7 +19,10 @@ class AudioRecorder:
     ENCODERS = available_encoders
     DEVICES = available_audio_devices
 
-    def __init__(self, device=None, encoder=None, samplerate=44100, channels=2, bitrate=128, port=None, **kwargs):
+    def __init__(self, mainloop=None, device=None, encoder=None, samplerate=44100, channels=2, bitrate=128, port=None, **kwargs):
+        self.mainloop = mainloop
+        self.id = 'audio_recorder'
+
         if encoder and encoder not in AudioRecorder.ENCODERS:
             raise NotImplementedError("Encoder '{}' not implemented".format(encoder))
 
@@ -165,10 +168,11 @@ class AudioRecorder:
         if self.pipeline:
             eos = Gst.Event.new_eos()
             self.pipeline.send_event(eos)
-            # msg = self.bus.timed_pop_filtered(Gst.MessageType.EOS | Gst.MessageType.ERROR, Gst.CLOCK_TIME_NONE)
-            # print('AudioRecorder last message:', msg)
             self.pipeline.set_state(Gst.State.NULL)
-
+            self.pipeline = None
+        if self.mainloop:
+            self.mainloop.quit()
+            self.comm.join()
 
 def main(**kwargs):
     if 'device' not in kwargs:
@@ -187,10 +191,10 @@ def main(**kwargs):
 
     # Start audio recorder
     if 'filename' in kwargs:
-        recorder = AudioRecorder(**kwargs)
+        recorder = AudioRecorder(mainloop=mainloop, **kwargs)
         recorder.start(path=kwargs['filename'])
     else:
-        recorder = AudioRecorder(**kwargs)
+        recorder = AudioRecorder(mainloop=mainloop, **kwargs)
         recorder.start()
 
     # run the main loop
@@ -199,7 +203,6 @@ def main(**kwargs):
     except:
         recorder.stop()
         mainloop.quit()
-
 
 # if run as script start recording
 if __name__ == "__main__":

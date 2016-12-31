@@ -35,6 +35,8 @@ class PlaybackWindow(Gtk.Window):
     def __init__(self, data=None, title="Video Out", hwaccel='opengl', auto_start=True):
         self.hwaccel = hwaccel
         self.auto_start = auto_start
+        if not hasattr(self, 'comm'):
+            self.comm = None
 
         # initialize window
         Gtk.Window.__init__(self, title=title)
@@ -110,6 +112,10 @@ class PlaybackWindow(Gtk.Window):
         self.connect("delete-event", self.quit)
 
     def quit(self, sender, param):
+        if self.comm is not None:
+            self.comm.inQueue.put({ 'quit': False })
+            self.comm.join()
+
         # on quit stop pipeline to avoid core dump
         if self.pipeline:
             self.pipeline.set_state(Gst.State.NULL)

@@ -81,14 +81,19 @@ class QueueManager(threading.Thread):
         # terminate all other processes
         for id, process in self.processes.items():
             if process.is_alive():
+                print('Sending quit to {}'.format(id))
                 self.outQueues[id].put({ 'quit': True })
-                # process.terminate()
-
-    def queue(self, id, data):
-        self.outQueues[id].put(data)
+                process.join()
+        for id, process in self.processes.items():
+            if process.is_alive():
+                print('Force terminating {}'.format(id))
+                process.terminate()
 
     def execute(self, id=None, main=None, kwargs={}):
         if id and main:
+            if id in self.processes and self.processes[id].is_alive():
+                self.outQueues[id].put({ 'raise': True })
+                return
             self.outQueues[id] = self.ctx.Queue()
             kwargs['comm_queues'] = (self.queue, self.outQueues[id])
             self.processes[id] = self.ctx.Process(target=main, kwargs=kwargs)
@@ -97,7 +102,9 @@ class QueueManager(threading.Thread):
 
     def terminate(self, id, forget_everything=True):
         if id in self.processes and self.processes[id].is_alive():
+            print('Sending quit to {}'.format(id))
             self.outQueues[id].put({ 'quit': True })
+            self.processes[id].join()
             # self.processes[id].terminate()
         if forget_everything and id in self.process_info:
             del self.process_info[id]

@@ -18,7 +18,9 @@ class RTPMuxer:
 
     AUDIO_ENCODERS = available_encoders
 
-    def __init__(self, audio_port=7654, video_port=7655, audio_delay=1150, audio_codec=None, audio_bitrate=128, **kwargs):
+    def __init__(self, mainloop=None, audio_port=7654, video_port=7655, audio_delay=1150, audio_codec=None, audio_bitrate=128, **kwargs):
+        self.id = 'muxer'
+        self.mainloop = mainloop
 
         if 'comm_queues' in kwargs:
             self.comm = IPCWatcher(kwargs['comm_queues'], self)
@@ -183,9 +185,13 @@ class RTPMuxer:
 
     def stop(self):
         if self.pipeline:
-            # eos = Gst.Event.new_eos()
-            # self.pipeline.send_event(eos)
+            eos = Gst.Event.new_eos()
+            self.pipeline.send_event(eos)
             self.pipeline.set_state(Gst.State.NULL)
+            self.pipeline = None
+        if self.mainloop:
+            self.mainloop.quit()
+            self.comm.join()
 
 
 def main(**kwargs):
@@ -198,7 +204,7 @@ def main(**kwargs):
     Gst.init(None)
 
     # Start screen recorder
-    recorder = RTPMuxer(**kwargs)
+    recorder = RTPMuxer(mainloop=mainloop, **kwargs)
     recorder.start(path=kwargs['filename'])
 
     # run the main loop
@@ -207,7 +213,6 @@ def main(**kwargs):
     except:
         recorder.stop()
         mainloop.quit()
-
 
 # if run as script start recording
 if __name__ == "__main__":

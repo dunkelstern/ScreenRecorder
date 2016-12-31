@@ -22,7 +22,9 @@ class ScreenRecorder:
     ENCODERS = available_encoders
     ENCODER_DELAY = encoder_delay
 
-    def __init__(self, **kwargs):
+    def __init__(self, mainloop=None, **kwargs):
+        self.id = 'screen_recorder'
+        self.mainloop = mainloop
         from ScreenRec.model.configfile import config
 
         if 'comm_queues' in kwargs:
@@ -38,7 +40,7 @@ class ScreenRecorder:
             self.encoder = ScreenRecorder.ENCODERS[0]
         self.display = kwargs.get('display', config.rec_settings.screen)
         self.port = kwargs.get('port', None)
-        
+
         self.build_gst_pipeline(self.encoder)
 
     def build_gst_pipeline(self, encoding_method):
@@ -120,6 +122,10 @@ class ScreenRecorder:
             eos = Gst.Event.new_eos()
             self.pipeline.send_event(eos)
             self.pipeline.set_state(Gst.State.NULL)
+            self.pipeline = None
+        if self.mainloop:
+            self.mainloop.quit()
+            self.comm.join()
 
 
 def main(**kwargs):
@@ -138,10 +144,10 @@ def main(**kwargs):
 
     # Start screen recorder
     if 'filename' in kwargs:
-        recorder = ScreenRecorder(**kwargs)
+        recorder = ScreenRecorder(mainloop=mainloop, **kwargs)
         recorder.start(path=kwargs['filename'])
     else:
-        recorder = ScreenRecorder(**kwargs)
+        recorder = ScreenRecorder(mainloop=mainloop, **kwargs)
         recorder.start()
 
     # run the main loop
@@ -150,7 +156,6 @@ def main(**kwargs):
     except:
         recorder.stop()
         mainloop.quit()
-
 
 # if run as script start recording
 if __name__ == "__main__":

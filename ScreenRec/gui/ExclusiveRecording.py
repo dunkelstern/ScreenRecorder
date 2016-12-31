@@ -18,9 +18,13 @@ class Watcher(IPCWatcher):
         self.tee_pad = None
 
     def run_command(self, command):
-        if 'quit' in command:
+        if 'quit' in command and command['quit'] == True:
+            print('resetting comm')
             self.main.comm = None
             self.main.quit(None, None)
+
+        if 'raise' in command:
+            self.main.present()
 
         if 'record' in command:
             # add encoder to pipeline

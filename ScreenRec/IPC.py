@@ -16,7 +16,11 @@ class IPCWatcher(threading.Thread):
         while not quit:
             command = self.inQueue.get()
 
-            print('IPC got {}'.format(command))
+            id = getattr(self.main, 'id', None)
+            if id:
+                print('{}: IPC got {}'.format(id, command))
+            else:
+                print('IPC got {}'.format(command))
             if 'quit' in command:
                 quit = True
             GLib.idle_add(self.run_command, command)
