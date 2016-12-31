@@ -178,7 +178,7 @@ class RTPMuxer:
             print('ERROR: ', message.parse_error())
             self.stop()
 
-    def start(self, path='~/output.mkv'):
+    def start(self, path='~/output.ts'):
         path = os.path.expanduser(path)
         self.sink.set_property('location', path)
         self.pipeline.set_state(Gst.State.PLAYING)

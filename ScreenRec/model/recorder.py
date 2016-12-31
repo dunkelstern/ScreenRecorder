@@ -16,9 +16,9 @@ class RecorderConfig(Config):
         self.screen = 0
         self.encoder = ScreenRecorder.ENCODERS[0]
         if platform.system() == 'Linux':
-            self.filename = '~/Capture/cap-%Y-%m-%d_%H:%M:%S.mkv'
+            self.filename = '~/Capture/cap-%Y-%m-%d_%H:%M:%S.ts'
         else:
-            self.filename = '~/Capture/cap-%Y-%m-%d_%H-%M-%S.mkv'
+            self.filename = '~/Capture/cap-%Y-%m-%d_%H-%M-%S.ts'
 
         self.width = Gdk.Screen.get_default().get_width()
         self.height = Gdk.Screen.get_default().get_height()
@@ -49,9 +49,9 @@ class RecorderConfig(Config):
             else ScreenRecorder.ENCODERS[0]
 
         if platform.system() == 'Linux':
-            self.filename = '~/Capture/cap-%Y-%m-%d_%H:%M:%S.mkv'
+            self.filename = '~/Capture/cap-%Y-%m-%d_%H:%M:%S.ts'
         else:
-            self.filename = '~/Capture/cap-%Y-%m-%d_%H-%M-%S.mkv'
+            self.filename = '~/Capture/cap-%Y-%m-%d_%H-%M-%S.ts'
         self.filename = data.get('filename', self.filename)
 
         self.width = Gdk.Screen.get_default().get_width()
