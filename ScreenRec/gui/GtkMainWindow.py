@@ -1,7 +1,7 @@
 import platform
 import threading
 from datetime import datetime
-
+from time import sleep
 import gi
 
 # we need GStreamer 1.0 and Gtk 3.0
@@ -42,6 +42,7 @@ class QueueManager(threading.Thread):
         self.outQueues = {}
         self.processes = {}
         self.process_info = {}
+        self.exclusive = None
         super().__init__()
         
     def run(self):
@@ -64,11 +65,20 @@ class QueueManager(threading.Thread):
                 ))
                 self.execute(**command['execute'])
             if 'exclusive' in command:
-                print('MainWindow: IPC {} going into exclusive mode, terminating screen recorder'.format(
-                    command['exclusive']
-                ))
-                self.terminate('screen_recorder', forget_everything=False)
+                if self.exclusive == None:
+                    print('MainWindow: IPC {} going into exclusive mode, terminating screen recorder'.format(
+                        command['exclusive']
+                    ))
+                    self.terminate('screen_recorder', forget_everything=False)
+                    sleep(0.25)
+                else:
+                    print('MainWindow: IPC {} going into exclusive mode, stopping exclusive mode on {}'.format(
+                        command['exclusive'], self.exclusive
+                    ))
+                    self.outQueues[self.exclusive].put({ 'stop': True })
+                    sleep(0.25)
                 self.outQueues[command['exclusive']].put({ 'record': 7655 })
+                self.exclusive = command['exclusive']
             if 'cooperative' in command:
                 rec = self.process_info.get('screen_recorder', None)
                 if rec:
@@ -76,7 +86,9 @@ class QueueManager(threading.Thread):
                         command['cooperative']
                     ))
                     self.outQueues[command['cooperative']].put({ 'stop': True })
+                    sleep(0.25)
                     self.execute('screen_recorder', main=rec['main'], kwargs=rec['kwargs'])
+                    self.exclusive = None
 
         # terminate all other processes
         for id, process in self.processes.items():

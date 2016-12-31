@@ -37,6 +37,13 @@ class Watcher(IPCWatcher):
             # run encoder
             self.main.encoder.set_state(Gst.State.PLAYING)
         if 'stop' in command:
+            if self.main.excl_button.get_active():
+                self.main.excl_button.disconnect(self.main.excl_button_signal)
+                context = button.get_style_context()
+                self.main.excl_button.set_active(False)
+                context.remove_class('destructive-action')
+                self.main.excl_button_signal = self.main.excl_button.connect('toggled', on_excl, self)
+
             # unlink encoder from tee and destroy pad
             Gst.Element.unlink_pads(self.main.tee, self.tee_pad.get_name(), self.main.encoder, 'sink')
             self.main.tee.release_request_pad(self.tee_pad)
@@ -60,8 +67,8 @@ def on_excl(button, self):
         self.comm.outQueue.put({ 'cooperative': self.id })  
 
 def make_excl_button(self):
-    excl_button = Gtk.ToggleButton('Exclusive')
-    excl_button.connect('toggled', on_excl, self)
-    self.header.pack_end(excl_button)
+    self.excl_button = Gtk.ToggleButton('Exclusive')
+    self.excl_button_signal = self.excl_button.connect('toggled', on_excl, self)
+    self.header.pack_end(self.excl_button)
 
 
