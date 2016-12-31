@@ -20,8 +20,10 @@ def dump_pipeline(pipeline):
         while src[0] != Gst.IteratorResult.DONE:
             try:
                 print(' - {} connected to {}'.format(src[1].get_name(), src[1].peer.get_parent_element().name))
+                print('   caps: {}'.format(src[1].props.caps))
             except AttributeError:
                 print(' - {} UNCONNECTED'.format(src[1].get_name()))
+                print('   caps: {}'.format(src[1].props.caps))
             src = sub_iterator.next()
 
         sub_iterator = element.iterate_sink_pads()
@@ -29,8 +31,10 @@ def dump_pipeline(pipeline):
         while sink[0] != Gst.IteratorResult.DONE:
             try:
                 print(' - {} connected to {}'.format(sink[1].get_name(), sink[1].peer.get_parent_element().name))
+                print('   caps: {}'.format(sink[1].props.caps))
             except AttributeError:
                 print(' - {} UNCONNECTED'.format(sink[1].get_name()))
+                print('   caps: {}'.format(sink[1].props.caps))
             sink = sub_iterator.next()
 
         item = iterator.next()
